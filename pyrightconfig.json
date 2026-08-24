@@ -1,0 +1,7 @@
+{
+  "include": ["src", "app.py", "tests"],
+  "exclude": ["**/__pycache__", "notebooks"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "basic"
+}

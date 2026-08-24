@@ -1,2 +1,73 @@
-# 9IADT-fase-3-tech-challenge
-9IADT fase 3 tech challenge
+# 9IADT — Fase 3 — Tech Challenge
+
+**Assistente Virtual Médico**: fine-tuning de LLM (QLoRA) + RAG (LangChain/Chroma) +
+orquestração (LangGraph) + interface (Streamlit), com guardrails de segurança,
+validação humana obrigatória e auditoria completa.
+
+O plano de entrega completo — arquitetura, decisões fechadas, especificação técnica de
+cada módulo e a divisão de trabalho entre o time — vive em
+[ESTRATEGIA.md](https://github.com/fiap-postech-ia-para-devs-grupo/exercicios/blob/main/src/fase-03/99-tech-challenge/ESTRATEGIA.md)
+(repo `exercicios`). O trabalho está quebrado em tickets rastreáveis a partir do
+[issue de mapa](https://github.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge/issues/1)
+neste repositório — comece por lá.
+
+## Estado atual
+
+Este repositório contém o **scaffolding base**: devcontainer, Dockerfile/compose, e o
+esqueleto completo de `src/` com implementações mock em cada módulo, para que `app.py`
+rode ponta a ponta desde o primeiro dia. Cada módulo tem um comentário `TODO` apontando
+para o bloco/pessoa responsável por substituí-lo pela implementação real — veja os
+tickets no GitHub Issues.
+
+## Rodando localmente
+
+Requer [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+cp .env.example .env  # preencher HF_TOKEN / GROQ_API_KEY / GOOGLE_API_KEY quando necessário
+uv run streamlit run app.py
+```
+
+```bash
+uv run pytest
+```
+
+## Rodando via Docker
+
+```bash
+docker compose up --build
+```
+
+App em http://localhost:8501.
+
+## Dev Container
+
+Abra o repositório no VS Code com a extensão "Dev Containers" e escolha
+"Reopen in Container". O `postCreateCommand` roda `uv sync` e configura o kernel Jupyter
+automaticamente. Copie `.devcontainer/.env.example` para `.devcontainer/.env` antes de
+abrir, preenchendo `GIT_USER_NAME`/`GIT_USER_EMAIL`/`GITHUB_TOKEN`.
+
+## Estrutura
+
+```
+src/hospital_assistant/
+├── finetuning/   # data_prep, train, evaluate — Pessoa A
+├── llm/          # model_loader (base + adapter LoRA) — Pessoa A
+├── rag/          # ingest, retriever (Chroma) — Pessoa B
+├── db/           # schema, seed, patient_tools (SQLite mock) — Pessoa B
+├── graph/        # state, nodes, flow (LangGraph) — Pessoa C
+└── safety/       # guardrails, audit_log — Pessoa C
+app.py            # Streamlit, 3 telas — Pessoa D
+notebooks/finetuning_colab.ipynb  # roda no Colab (GPU T4) — Pessoa A
+docs/relatorio_tecnico.md         # relatório técnico — Pessoa E
+tests/                            # Pessoa E (+ smoke tests da base)
+```
+
+Fine-tuning real (QLoRA) roda no Google Colab, não no devcontainer — o extra
+`finetuning` do `pyproject.toml` (`bitsandbytes`, `trl`, `accelerate`) não é instalado
+por padrão.
+
+## Vídeo
+
+_(link a adicionar por Pessoa E ao final da Fase 3)_
