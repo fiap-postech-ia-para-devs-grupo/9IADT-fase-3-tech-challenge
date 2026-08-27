@@ -37,10 +37,6 @@ venv/
 .DS_Store
 .idea/
 
-# Claude / agent tooling
-.claude/
-.agents/
-
 # Project-specific mock/derived data — regenerate via seed_mock_data.py / ingest.py
 data/patients_mock.db
 data/audit.db
