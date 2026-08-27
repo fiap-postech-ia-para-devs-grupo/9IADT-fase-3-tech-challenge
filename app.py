@@ -10,7 +10,7 @@ from __future__ import annotations
 import streamlit as st
 
 from hospital_assistant.graph.flow import run
-from hospital_assistant.safety.audit_log import mock_audit_rows
+from hospital_assistant.safety.audit_log import filter_audit_rows, mock_audit_rows
 
 st.set_page_config(page_title="Assistente Virtual Médico", layout="wide")
 
@@ -43,10 +43,18 @@ def tela_validacao() -> None:
 def tela_auditoria() -> None:
     st.header("Tela 3 · Auditoria e Histórico")
     rows = mock_audit_rows()
-    status_filter = st.selectbox("Status", ["todos", "pendente", "aprovado", "rejeitado"])
-    if status_filter != "todos":
-        rows = [r for r in rows if r["status"] == status_filter]
-    st.dataframe(rows, use_container_width=True)
+
+    paciente_ids = {r["paciente_id"] for r in rows if r["paciente_id"]}
+    paciente_options = ["todos"] + sorted(paciente_ids, key=lambda p: (0, int(p)) if p.isdigit() else (1, p))
+    data_options = ["todas"] + sorted({r["timestamp"][:10] for r in rows})
+
+    col1, col2, col3 = st.columns(3)
+    status_filter = col1.selectbox("Status", ["todos", "pendente", "aprovado", "rejeitado"])
+    paciente_filter = col2.selectbox("Paciente", paciente_options)
+    data_filter = col3.selectbox("Data", data_options)
+
+    filtered = filter_audit_rows(rows, status_filter, paciente_filter, data_filter)
+    st.dataframe(filtered, use_container_width=True)
 
 
 def main() -> None:
