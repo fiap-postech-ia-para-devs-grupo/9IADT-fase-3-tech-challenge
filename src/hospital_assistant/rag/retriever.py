@@ -5,13 +5,18 @@ Score é a similaridade de cosseno (1 - distância cosseno do Chroma), então
 explicabilidade, então a direção importa: se a normalização mudar aqui, o
 significado do número exibido na UI muda junto.
 
-Limitação conhecida (Bloco 3, testada em #7): `all-MiniLM-L6-v2` — modelo
-fixado em ESTRATEGIA.md §1, "Decisões Fechadas — não reabrir" — é treinado
-majoritariamente em inglês e nem sempre separa bem textos clínicos curtos em
-português; ex. a query "dor torácica aguda" não traz
+Limitação conhecida (investigada em #7, mitigação tentada em #9):
+`all-MiniLM-L6-v2` — modelo fixado em ESTRATEGIA.md §1, "Decisões Fechadas —
+não reabrir" — é treinado majoritariamente em inglês e nem sempre separa bem
+textos clínicos curtos em português; ex. a query "dor torácica aguda" não traz
 `protocolos_sinteticos/dor_toracica_aguda.md` no top-3, mesmo com embeddings
-normalizados + distância cosseno. Ajuste de chunking/corpus para mitigar isso
-é escopo do Bloco 4 (#9 — Polimento), não deste ticket.
+normalizados + distância cosseno. Remover o boilerplate institucional
+repetido entre os protocolos sintéticos (feito em `ingest.py`, #9) **não**
+resolveu esse caso específico — as outras 4 queries testadas (pneumonia,
+exame urgente, crise hipertensiva, qSOFA) rankeiam corretamente. Conclusão:
+é limitação de cobertura do modelo em português para esse par
+query/documento, não bug de implementação nem de corpus — trocar de modelo
+resolveria, mas está fora de escopo (decisão fechada).
 """
 
 from __future__ import annotations
