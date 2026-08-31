@@ -26,8 +26,14 @@ Requer [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync
 cp .env.example .env  # preencher HF_TOKEN / GROQ_API_KEY / GOOGLE_API_KEY quando necessário
+uv run python -m hospital_assistant.db.seed_mock_data  # popula data/patients_mock.db
+uv run python -m hospital_assistant.rag.ingest          # popula data/chroma/
 uv run streamlit run app.py
 ```
+
+`uv run pytest` faz esse seed/ingest sozinho na primeira vez que rodar (via
+`tests/conftest.py`), mas `app.py` não — sem os dois comandos acima, a Tela 1
+consulta um banco de pacientes e um índice RAG vazios.
 
 ```bash
 uv run pytest
