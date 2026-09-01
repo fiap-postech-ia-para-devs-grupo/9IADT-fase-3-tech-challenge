@@ -13,11 +13,13 @@ neste repositório — comece por lá.
 
 ## Estado atual
 
-Este repositório contém o **scaffolding base**: devcontainer, Dockerfile/compose, e o
-esqueleto completo de `src/` com implementações mock em cada módulo, para que `app.py`
-rode ponta a ponta desde o primeiro dia. Cada módulo tem um comentário `TODO` apontando
-para o bloco/pessoa responsável por substituí-lo pela implementação real — veja os
-tickets no GitHub Issues.
+Pipeline real de ponta a ponta: `db/`, `rag/` e `graph/`/`safety/` (Pessoas B e C) e as 3
+telas do Streamlit (Pessoa D) já rodam contra dados reais — SQLite, Chroma, o grafo
+LangGraph com guardrails, e a auditoria real em `clinical_audit.jsonl`. O único módulo
+ainda mock é `llm/model_loader.py` (`MockLLM`): o fine-tuning QLoRA e a publicação do
+adapter (Pessoa A) ainda estão em aberto, então toda sugestão do assistente vem desse
+stand-in determinístico até o adapter existir. Veja os tickets no GitHub Issues para o
+estado de cada bloco.
 
 ## Rodando localmente
 
@@ -41,8 +43,15 @@ uv run pytest
 
 ## Rodando via Docker
 
+`compose.yaml` monta `./data` no container (`volumes:`), então isso sobrepõe o que o
+Dockerfile copiou no build — sem popular `./data` no host, o container sobe com banco de
+pacientes e índice RAG vazios, do mesmo jeito que `app.py` local sem seed/ingest. Rode os
+dois comandos da seção anterior antes (host) ou depois (dentro do container):
+
 ```bash
-docker compose up --build
+docker compose up --build -d
+docker compose exec streamlit python -m hospital_assistant.db.seed_mock_data
+docker compose exec streamlit python -m hospital_assistant.rag.ingest
 ```
 
 App em http://localhost:8501.
