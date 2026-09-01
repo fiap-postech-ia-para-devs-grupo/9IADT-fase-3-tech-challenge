@@ -9,18 +9,28 @@ from __future__ import annotations
 
 import streamlit as st
 
+from hospital_assistant.db.patient_tools import list_patients
 from hospital_assistant.graph.flow import run
 from hospital_assistant.safety.audit_log import filter_audit_rows, mock_audit_rows
 
 st.set_page_config(page_title="Assistente Virtual Médico", layout="wide")
 
+_SEM_PACIENTE = "Nenhum paciente selecionado"
+
 
 def tela_consulta() -> None:
     st.header("Tela 1 · Consulta ao Assistente")
     pergunta = st.text_area("Pergunta do médico")
-    paciente_id = st.text_input("ID do paciente (opcional)")
+
+    pacientes = list_patients()
+    opcoes = {_SEM_PACIENTE: None} | {
+        f"{p['nome']} ({p['prontuario']})": p["id"] for p in pacientes
+    }
+    escolha = st.selectbox("Paciente (opcional)", list(opcoes))
+    paciente_id = opcoes[escolha]
+
     if st.button("Consultar", type="primary") and pergunta:
-        resultado = run(pergunta, paciente_id or None)
+        resultado = run(pergunta, paciente_id)
         st.warning("Pendente de validação humana")
         st.json(resultado)
 

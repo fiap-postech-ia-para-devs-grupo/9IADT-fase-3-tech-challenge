@@ -48,6 +48,12 @@ class PatientHistory(TypedDict):
     alertas: list[AlertRecord]
 
 
+class PatientSummary(TypedDict):
+    id: str
+    nome: str
+    prontuario: str
+
+
 _EXAM_COLUMNS = "id, tipo, status, data_solicitacao, data_resultado, resultado"
 
 
@@ -55,6 +61,16 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(PATIENTS_DB)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def list_patients() -> list[PatientSummary]:
+    """Pacientes disponíveis para o seletor da Tela 1 — não expõe dados clínicos."""
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT id, nome, prontuario FROM pacientes ORDER BY nome").fetchall()
+        return [{"id": str(row["id"]), "nome": row["nome"], "prontuario": row["prontuario"]} for row in rows]
+    finally:
+        conn.close()
 
 
 def get_pending_exams(paciente_id: str) -> list[ExamRecord]:
