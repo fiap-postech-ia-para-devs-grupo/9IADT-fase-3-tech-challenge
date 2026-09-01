@@ -1,8 +1,11 @@
 import json
 import os
 
+import pytest
+
 from hospital_assistant.safety.audit_log import (
     ClinicalAuditLogger,
+    apply_decision,
     filter_audit_rows,
     mock_audit_rows,
 )
@@ -150,3 +153,68 @@ def test_filters_combine():
 def test_filter_with_no_matches_returns_empty():
     rows = mock_audit_rows()
     assert filter_audit_rows(rows, status="nao-existe") == []
+
+
+# =============================================================
+# Tela 2 (Fila de Validação Humana) — apply_decision, per issue #16.
+# =============================================================
+
+
+def test_apply_decision_aprovado_atualiza_status_e_aprovador():
+    rows = mock_audit_rows()
+    pendente = next(r for r in rows if r["status"] == "pendente")
+
+    result = apply_decision(rows, pendente["id"], "aprovado", aprovador="Dra. Lima")
+
+    atualizado = next(r for r in result if r["id"] == pendente["id"])
+    assert atualizado["status"] == "aprovado"
+    assert atualizado["aprovador"] == "Dra. Lima"
+    assert atualizado["timestamp_aprovacao"] is not None
+
+
+def test_apply_decision_rejeitado_atualiza_status():
+    rows = mock_audit_rows()
+    pendente = next(r for r in rows if r["status"] == "pendente")
+
+    result = apply_decision(rows, pendente["id"], "rejeitado", aprovador="Dr. Souza")
+
+    atualizado = next(r for r in result if r["id"] == pendente["id"])
+    assert atualizado["status"] == "rejeitado"
+    assert atualizado["aprovador"] == "Dr. Souza"
+
+
+def test_apply_decision_com_resposta_editada_substitui_resposta_llm():
+    rows = mock_audit_rows()
+    pendente = next(r for r in rows if r["status"] == "pendente")
+
+    result = apply_decision(
+        rows,
+        pendente["id"],
+        "aprovado",
+        aprovador="Dra. Lima",
+        resposta_editada="Resposta corrigida pelo médico.",
+    )
+
+    atualizado = next(r for r in result if r["id"] == pendente["id"])
+    assert atualizado["resposta_llm"] == "Resposta corrigida pelo médico."
+    assert atualizado["status"] == "aprovado"
+
+
+def test_apply_decision_nao_afeta_outras_linhas():
+    rows = mock_audit_rows()
+    pendente = next(r for r in rows if r["status"] == "pendente")
+    outros_ids_antes = {r["id"]: r for r in rows if r["id"] != pendente["id"]}
+
+    result = apply_decision(rows, pendente["id"], "aprovado", aprovador="Dra. Lima")
+
+    for row in result:
+        if row["id"] != pendente["id"]:
+            assert row == outros_ids_antes[row["id"]]
+
+
+def test_apply_decision_decisao_invalida_levanta_erro():
+    rows = mock_audit_rows()
+    pendente = next(r for r in rows if r["status"] == "pendente")
+
+    with pytest.raises(ValueError):
+        apply_decision(rows, pendente["id"], "invalida", aprovador="Dra. Lima")

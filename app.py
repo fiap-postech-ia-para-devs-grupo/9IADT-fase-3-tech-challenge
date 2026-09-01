@@ -7,15 +7,42 @@ body with the real thing block by block (see the wayfinder tickets Bloco 1-4).
 
 from __future__ import annotations
 
+from typing import Literal
+
 import streamlit as st
 
 from hospital_assistant.db.patient_tools import list_patients
 from hospital_assistant.graph.flow import run
-from hospital_assistant.safety.audit_log import filter_audit_rows, mock_audit_rows
+from hospital_assistant.safety.audit_log import AuditRow, apply_decision, filter_audit_rows, mock_audit_rows
 
 st.set_page_config(page_title="Assistente Virtual Médico", layout="wide")
 
 _SEM_PACIENTE = "Nenhum paciente selecionado"
+
+
+def _audit_rows() -> list[AuditRow]:
+    """Session-scoped audit rows, shared by Telas 2 and 3.
+
+    Seeded once from `mock_audit_rows()`; Tela 2's decisions mutate this
+    directly so Tela 3 reflects them without a real persisted `auditoria`
+    table.
+    """
+    if "audit_rows" not in st.session_state:
+        st.session_state.audit_rows = mock_audit_rows()
+    return st.session_state.audit_rows
+
+
+def _decidir(
+    row_id: int,
+    decisao: Literal["aprovado", "rejeitado"],
+    aprovador: str | None,
+    resposta_editada: str | None = None,
+) -> None:
+    """Apply a Tela 2 decision and rerun so the row leaves the pending list."""
+    st.session_state.audit_rows = apply_decision(
+        _audit_rows(), row_id, decisao, aprovador, resposta_editada=resposta_editada
+    )
+    st.rerun()
 
 
 def tela_consulta() -> None:
@@ -37,22 +64,39 @@ def tela_consulta() -> None:
 
 def tela_validacao() -> None:
     st.header("Tela 2 · Fila de Validação Humana")
-    for row in mock_audit_rows():
-        if row["status"] != "pendente":
-            continue
+
+    aprovador = st.text_input("Aprovador", key="aprovador_nome")
+
+    pendentes = [row for row in _audit_rows() if row["status"] == "pendente"]
+    if not pendentes:
+        st.info("Nenhuma resposta pendente de validação.")
+        return
+
+    for row in pendentes:
+        editando_key = f"editando-{row['id']}"
         with st.expander(row["pergunta"]):
             st.write(row["resposta_llm"])
             st.caption("Fontes RAG")
             st.json(row["fontes_rag"])
+
             c1, c2, c3 = st.columns(3)
-            c1.button("Aprovar", key=f"aprovar-{row['id']}")
-            c2.button("Rejeitar", key=f"rejeitar-{row['id']}")
-            c3.button("Editar", key=f"editar-{row['id']}")
+            if c1.button("Aprovar", key=f"aprovar-{row['id']}"):
+                _decidir(row["id"], "aprovado", aprovador or None)
+            if c2.button("Rejeitar", key=f"rejeitar-{row['id']}"):
+                _decidir(row["id"], "rejeitado", aprovador or None)
+            if c3.button("Editar", key=f"editar-{row['id']}"):
+                st.session_state[editando_key] = True
+
+            if st.session_state.get(editando_key):
+                resposta_editada = st.text_area("Editar resposta", value=row["resposta_llm"], key=f"edicao-{row['id']}")
+                if st.button("Salvar edição e aprovar", key=f"salvar-{row['id']}"):
+                    st.session_state[editando_key] = False
+                    _decidir(row["id"], "aprovado", aprovador or None, resposta_editada=resposta_editada)
 
 
 def tela_auditoria() -> None:
     st.header("Tela 3 · Auditoria e Histórico")
-    rows = mock_audit_rows()
+    rows = _audit_rows()
 
     paciente_ids = {r["paciente_id"] for r in rows if r["paciente_id"]}
     paciente_options = ["todos"] + sorted(paciente_ids, key=lambda p: (0, int(p)) if p.isdigit() else (1, p))

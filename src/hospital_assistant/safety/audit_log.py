@@ -2,11 +2,12 @@
 
 Two independent concerns share this module:
 
-- `AuditRow` / `mock_audit_rows` / `filter_audit_rows`: the read contract Tela 2
-  (Fila de Validação Humana) and Tela 3 (Auditoria) already consume from
-  `app.py`. Still backed by mock data — wiring Telas 2/3 to real persisted
-  rows instead of `mock_audit_rows()` is a separate ticket, so this contract
-  is kept stable here on purpose.
+- `AuditRow` / `mock_audit_rows` / `filter_audit_rows` / `apply_decision`: the
+  read/write contract Tela 2 (Fila de Validação Humana) and Tela 3 (Auditoria)
+  consume from `app.py`. Still backed by mock data, held in `st.session_state`
+  so Tela 2's decisions are visible on Tela 3 within the same session — wiring
+  both screens to a real persisted `auditoria` table instead is a separate
+  ticket, so this contract is kept stable here on purpose.
 - `ClinicalAuditLogger`: the real write path, called by the graph's
   `log_auditoria` node on every run. Persists JSONL independently of the
   contract above.
@@ -18,7 +19,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 logging.basicConfig(level=logging.INFO)
 
@@ -106,6 +107,41 @@ def mock_audit_rows() -> list[AuditRow]:
             "timestamp_aprovacao": "2026-08-23T16:50:00",
         },
     ]
+
+
+def apply_decision(
+    rows: list[AuditRow],
+    row_id: int,
+    decisao: Literal["aprovado", "rejeitado"],
+    aprovador: str | None = None,
+    resposta_editada: str | None = None,
+) -> list[AuditRow]:
+    """Apply Tela 2's Aprovar/Rejeitar/Editar decision to one audit row.
+
+    Returns a new list with the matching row's `status`, `aprovador` and
+    `timestamp_aprovacao` updated; other rows are returned unchanged.
+    `resposta_editada` covers the "Editar" action: it replaces `resposta_llm`
+    before the decision (always "aprovado" for an edit) is applied — editing
+    isn't a separate status, it's an edit-then-approve.
+    """
+    if decisao not in ("aprovado", "rejeitado"):
+        raise ValueError(f"decisao inválida: {decisao!r}")
+
+    timestamp_aprovacao = datetime.now(UTC).isoformat()
+
+    updated: list[AuditRow] = []
+    for row in rows:
+        if row["id"] != row_id:
+            updated.append(row)
+            continue
+        novo: AuditRow = dict(row)  # type: ignore[assignment]
+        if resposta_editada is not None:
+            novo["resposta_llm"] = resposta_editada
+        novo["status"] = decisao
+        novo["aprovador"] = aprovador
+        novo["timestamp_aprovacao"] = timestamp_aprovacao
+        updated.append(novo)
+    return updated
 
 
 def filter_audit_rows(
