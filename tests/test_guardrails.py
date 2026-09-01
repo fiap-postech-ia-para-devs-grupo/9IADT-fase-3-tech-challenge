@@ -10,7 +10,7 @@ def criar_guardrails():
 def test_detecta_emergencia():
     guardrails = criar_guardrails()
 
-    state = {"pergunta": ("Estou com hemorragia e muito mal.")}
+    state = {"pergunta": ("Paciente com dor torácica intensa e instabilidade hemodinâmica.")}
 
     valido, mensagem, sinais = guardrails.validar_input(state)
 
@@ -18,7 +18,7 @@ def test_detecta_emergencia():
 
     assert "emergencia_clinica" in sinais
 
-    assert "hemorragia" in sinais
+    assert "dor torácica intensa" in sinais
 
     assert "urgência" in mensagem.lower() or "urgencia" in mensagem.lower()
 
@@ -26,7 +26,7 @@ def test_detecta_emergencia():
 def test_detecta_violencia_domestica():
     guardrails = criar_guardrails()
 
-    state = {"pergunta": ("Meu marido me bateu e estou com medo.")}
+    state = {"pergunta": ("Paciente relata que o marido a agrediu e está com medo.")}
 
     valido, mensagem, sinais = guardrails.validar_input(state)
 
@@ -40,7 +40,7 @@ def test_detecta_violencia_domestica():
 def test_pergunta_normal():
     guardrails = criar_guardrails()
 
-    state = {"pergunta": ("Tenho dúvidas sobre minha menstruação.")}
+    state = {"pergunta": ("Qual a conduta inicial para suspeita de pneumonia?")}
 
     valido, mensagem, sinais = guardrails.validar_input(state)
 
@@ -68,9 +68,9 @@ def test_pergunta_vazia():
 def test_medicamento_exige_validacao_humana():
     guardrails = criar_guardrails()
 
-    state = {"pergunta": ("Qual remédio devo tomar?")}
+    state = {"pergunta": ("Qual remédio devo prescrever?")}
 
-    resposta = "Você pode conversar com um profissional sobre suas opções."
+    resposta = "Você pode conversar com um profissional sobre as opções."
 
     resposta_final, requer_validacao = guardrails.validar_output(
         state,
@@ -85,7 +85,7 @@ def test_medicamento_exige_validacao_humana():
 def test_dosagem_exige_validacao_humana():
     guardrails = criar_guardrails()
 
-    state = {"pergunta": ("Qual a dosagem correta?")}
+    state = {"pergunta": ("Qual a dosagem correta de captopril?")}
 
     resposta = "A dosagem depende da avaliação clínica."
 
@@ -119,7 +119,7 @@ def test_suaviza_diagnostico():
 
     state = {"pergunta": ("O que pode ser isso?")}
 
-    resposta = "Você tem uma infecção."
+    resposta = "Você tem uma pneumonia."
 
     resposta_final, _ = guardrails.validar_output(
         state,
@@ -134,7 +134,7 @@ def test_suaviza_diagnostico():
 def test_adiciona_aviso_de_avaliacao_presencial():
     guardrails = criar_guardrails()
 
-    state = {"pergunta": ("Tenho uma dúvida.")}
+    state = {"pergunta": ("Tenho uma dúvida sobre um protocolo.")}
 
     resposta = "Esta é uma informação geral."
 
@@ -144,3 +144,18 @@ def test_adiciona_aviso_de_avaliacao_presencial():
     )
 
     assert "avaliação presencial" in resposta_final.lower() or "avaliacao presencial" in resposta_final.lower()
+
+
+def test_resposta_sem_medicamento_nao_exige_validacao():
+    guardrails = criar_guardrails()
+
+    state = {"pergunta": ("Quais os sinais de alerta na crise hipertensiva?")}
+
+    resposta = "Procure avaliação presencial em caso de lesão de órgão-alvo."
+
+    _, requer_validacao = guardrails.validar_output(
+        state,
+        resposta,
+    )
+
+    assert requer_validacao is False

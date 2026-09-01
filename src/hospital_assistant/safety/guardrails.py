@@ -1,6 +1,6 @@
 import re
 
-from hospital_assistant.state import HospitalAssistantState
+from hospital_assistant.graph.state import AssistantState
 
 
 class ClinicalGuardrails:
@@ -8,8 +8,9 @@ class ClinicalGuardrails:
     Guardrails clínicos de entrada e saída.
 
     Objetivos:
-    - detectar sinais de possível emergência;
-    - detectar violência doméstica;
+    - detectar sinais de possível emergência (protocolos gerais: dor
+      torácica aguda, sepse, crise hipertensiva, pneumonia);
+    - detectar suspeita de violência doméstica;
     - impedir prescrição/dosagem autônoma;
     - sinalizar necessidade de validação humana;
     - reduzir linguagem diagnóstica definitiva;
@@ -19,18 +20,25 @@ class ClinicalGuardrails:
     # =========================================================
     # SINAIS DE POSSÍVEL EMERGÊNCIA
     # =========================================================
+    # Termos ligados aos protocolos gerais suportados (dor torácica aguda,
+    # sepse, crise hipertensiva, pneumonia) — ver data/raw/protocolos_sinteticos.
 
     TERMOS_EMERGENCIA = [
-        "sangramento abundante",
-        "dor insuportável",
-        "desmaiou",
-        "hemorragia",
-        "contrações de 5 em 5 minutos",
-        "perda de líquido amniótico",
-        "perda de sangue gestante",
+        "dor torácica intensa",
+        "dor torácica súbita",
+        "dor no peito",
+        "instabilidade hemodinâmica",
+        "hipotensão grave",
+        "confusão mental súbita",
+        "alteração do nível de consciência",
         "falta de ar severa",
-        "convulsão",
+        "saturação baixa",
+        "lactato muito alto",
         "febre muito alta",
+        "convulsão",
+        "desmaiou",
+        "pressão arterial muito alta",
+        "emergência hipertensiva",
     ]
 
     # =========================================================
@@ -49,17 +57,16 @@ class ClinicalGuardrails:
         "comprimido",
         "comprimir",
         "gotas",
-        "anticoncepcional",
-        "pílula",
-        "pilula",
+        "antibiótico",
+        "antibiotico",
         "ibuprofeno",
         "paracetamol",
-        "buscopan",
         "dipirona",
+        "losartana",
+        "captopril",
+        "aas",
         "amoxicilina",
-        "nistatina",
-        "miconazol",
-        "metronidazol",
+        "ceftriaxona",
     ]
 
     # =========================================================
@@ -111,6 +118,7 @@ class ClinicalGuardrails:
         "agressao",
         "agredida",
         "agredido",
+        "agrediu",
         "me bateu",
         "me bate",
         "bater em mim",
@@ -164,7 +172,7 @@ class ClinicalGuardrails:
 
     def validar_input(
         self,
-        state: HospitalAssistantState,
+        state: AssistantState,
     ) -> tuple[bool, str, list[str]]:
         """
         Valida a pergunta antes da chamada à LLM.
@@ -195,7 +203,7 @@ class ClinicalGuardrails:
         matches_emergencia = self.regex_emergencia.findall(pergunta)
 
         if matches_emergencia:
-            # Marcador interno utilizado pelo router.
+            # Marcador interno utilizado pelo nó de alerta.
             sinais_alarme.append("emergencia_clinica")
 
             sinais_alarme.extend(sorted(set(match.lower() for match in matches_emergencia)))
@@ -211,7 +219,7 @@ class ClinicalGuardrails:
 
             # A detecção de emergência não significa que a entrada
             # seja "inválida"; ela é uma condição de segurança que
-            # deve ser roteada pelo grafo.
+            # deve ser sinalizada pelo grafo (emitir_alerta_se_necessario).
             return (
                 True,
                 alerta,
@@ -247,7 +255,7 @@ class ClinicalGuardrails:
 
     def validar_output(
         self,
-        state: HospitalAssistantState,
+        state: AssistantState,
         resposta_bruta: str,
     ) -> tuple[str, bool]:
         """
@@ -265,10 +273,7 @@ class ClinicalGuardrails:
 
         resposta_final = resposta_bruta or ""
 
-        requer_validacao_humana = state.get(
-            "requer_validacao_humana",
-            False,
-        )
+        requer_validacao_humana = False
 
         # -----------------------------------------------------
         # Medicamentos / prescrição

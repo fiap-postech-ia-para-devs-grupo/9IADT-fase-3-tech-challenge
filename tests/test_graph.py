@@ -1,96 +1,64 @@
 import os
 
-from hospital_assistant.graph import (
-    build_hospital_graph,
-)
+from hospital_assistant.graph.flow import build_hospital_graph, run
+from hospital_assistant.safety.audit_log import ClinicalAuditLogger
 
 
 def limpar_auditoria():
-    caminho = "clinical_audit.jsonl"
-
+    caminho = ClinicalAuditLogger.LOG_ESTRUTURADO_PATH
     if os.path.exists(caminho):
         os.remove(caminho)
 
 
 def test_grafo_compila():
-    app = build_hospital_graph()
+    grafo = build_hospital_graph()
 
-    assert app is not None
+    assert grafo is not None
 
 
-def test_fluxo_ginecologia():
+def test_fluxo_normal_com_exame_pendente():
     limpar_auditoria()
 
-    app = build_hospital_graph()
+    # paciente 1 tem um exame pendente no seed (Hemograma completo)
+    resultado = run("Qual a conduta para dor torácica aguda?", paciente_id="1")
 
-    estado_inicial = {"pergunta": ("Tenho cólicas durante a menstruação.")}
-
-    resultado = app.invoke(
-        estado_inicial,
-        config={"configurable": {"thread_id": "teste-ginecologia"}},
-    )
-
-    assert resultado["categoria_triagem"] == "ginecologia"
-
-    assert resultado["resposta_final"]
-
-    assert "passos_processamento" in resultado
+    assert resultado["status"] == "pendente"
+    assert resultado["sugestao_llm"]
+    assert resultado["exames_pendentes"]
+    assert resultado["alerta"] is not None
+    assert "exame" in resultado["alerta"].lower()
 
 
-def test_fluxo_emergencia():
+def test_fluxo_sem_paciente_nao_consulta_exames():
     limpar_auditoria()
 
-    app = build_hospital_graph()
+    resultado = run("Quais os sinais de alerta na sepse?")
 
-    estado_inicial = {"pergunta": ("Estou com hemorragia.")}
-
-    resultado = app.invoke(
-        estado_inicial,
-        config={"configurable": {"thread_id": "teste-emergencia"}},
-    )
-
-    assert resultado["bloqueado_por_seguranca"] is True
-
-    assert "emergência" in resultado["resposta_final"].lower() or "emergencia" in resultado["resposta_final"].lower()
+    assert resultado["exames_pendentes"] == []
 
 
-def test_fluxo_violencia():
+def test_fluxo_emergencia_gera_alerta():
     limpar_auditoria()
 
-    app = build_hospital_graph()
+    resultado = run("Paciente com dor torácica intensa e instabilidade hemodinâmica.")
 
-    estado_inicial = {"pergunta": ("Meu parceiro me agrediu.")}
-
-    resultado = app.invoke(
-        estado_inicial,
-        config={"configurable": {"thread_id": "teste-violencia"}},
-    )
-
-    assert resultado["categoria_triagem"] == "violencia_domestica"
-
-    assert "acolhimento" in " ".join(resultado["passos_processamento"]).lower()
+    assert "emergencia_clinica" in resultado["flags_seguranca"]
+    assert resultado["alerta"] is not None
+    assert "emergência" in resultado["alerta"].lower()
 
 
 def test_fluxo_medicamento_requer_validacao():
     limpar_auditoria()
 
-    app = build_hospital_graph()
+    resultado = run("Qual remédio devo prescrever para o paciente?")
 
-    estado_inicial = {"pergunta": ("Qual remédio devo tomar?")}
+    assert "requer_validacao_humana" in resultado["flags_seguranca"]
+    assert "não realiza prescrição" in resultado["sugestao_llm"]
 
-    resultado = app.invoke(
-        estado_inicial,
-        config={"configurable": {"thread_id": "teste-medicamento"}},
-    )
 
-    assert resultado["requer_validacao_humana"] is True
+def test_fluxo_consulta_rag_retorna_contexto():
+    limpar_auditoria()
 
-    assert (
-        resultado.get(
-            "validado_por_humano",
-            False,
-        )
-        is False
-    )
+    resultado = run("sintomas de pneumonia")
 
-    assert "não realiza prescrição" in resultado["resposta_final"]
+    assert resultado["contexto_rag"]
