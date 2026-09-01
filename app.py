@@ -1,8 +1,10 @@
 """Streamlit entrypoint — 3 telas, per ESTRATEGIA.md §7.
 
-Scaffolding only: navigation works and every screen renders against mock
-data so the app is demoable from day one. Pessoa D replaces each screen's
-body with the real thing block by block (see the wayfinder tickets Bloco 1-4).
+All three screens run against real data (issue #17, Bloco 4): Tela 1 calls
+the real graph (`hospital_assistant.graph.flow.run`) and real patient list;
+Telas 2 and 3 read the real audit trail (`audit_log.real_audit_rows`), with
+Tela 2's Aprovar/Rejeitar/Editar decisions held in `st.session_state` so
+Tela 3 reflects them within the same session.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import streamlit as st
 
 from hospital_assistant.db.patient_tools import list_patients
 from hospital_assistant.graph.flow import run
-from hospital_assistant.safety.audit_log import AuditRow, apply_decision, filter_audit_rows, mock_audit_rows
+from hospital_assistant.safety.audit_log import AuditRow, apply_decision, filter_audit_rows, real_audit_rows
 
 st.set_page_config(page_title="Assistente Virtual Médico", layout="wide")
 
@@ -23,12 +25,12 @@ _SEM_PACIENTE = "Nenhum paciente selecionado"
 def _audit_rows() -> list[AuditRow]:
     """Session-scoped audit rows, shared by Telas 2 and 3.
 
-    Seeded once from `mock_audit_rows()`; Tela 2's decisions mutate this
+    Seeded once from `real_audit_rows()`; Tela 2's decisions mutate this
     directly so Tela 3 reflects them without a real persisted `auditoria`
     table.
     """
     if "audit_rows" not in st.session_state:
-        st.session_state.audit_rows = mock_audit_rows()
+        st.session_state.audit_rows = real_audit_rows()
     return st.session_state.audit_rows
 
 
@@ -103,7 +105,7 @@ def tela_auditoria() -> None:
     data_options = ["todas"] + sorted({r["timestamp"][:10] for r in rows})
 
     col1, col2, col3 = st.columns(3)
-    status_filter = col1.selectbox("Status", ["todos", "pendente", "aprovado", "rejeitado"])
+    status_filter = col1.selectbox("Status", ["todos", "pendente", "aprovado", "rejeitado", "nao_necessaria"])
     paciente_filter = col2.selectbox("Paciente", paciente_options)
     data_filter = col3.selectbox("Data", data_options)
 

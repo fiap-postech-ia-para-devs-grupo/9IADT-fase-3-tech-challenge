@@ -2,15 +2,18 @@
 
 Two independent concerns share this module:
 
-- `AuditRow` / `mock_audit_rows` / `filter_audit_rows` / `apply_decision`: the
+- `AuditRow` / `real_audit_rows` / `filter_audit_rows` / `apply_decision`: the
   read/write contract Tela 2 (Fila de Validação Humana) and Tela 3 (Auditoria)
-  consume from `app.py`. Still backed by mock data, held in `st.session_state`
-  so Tela 2's decisions are visible on Tela 3 within the same session — wiring
-  both screens to a real persisted `auditoria` table instead is a separate
-  ticket, so this contract is kept stable here on purpose.
+  consume from `app.py`. `real_audit_rows` reads the rows from
+  `ClinicalAuditLogger`'s real JSONL trail; decisions (Aprovar/Rejeitar/Editar)
+  are held in `st.session_state` so Tela 2's decisions are visible on Tela 3
+  within the same session — writing those decisions back into a persisted
+  `auditoria` table instead is a separate ticket, so that half of the contract
+  is kept stable here on purpose. `mock_audit_rows` remains as fixture data
+  for this module's own unit tests.
 - `ClinicalAuditLogger`: the real write path, called by the graph's
   `log_auditoria` node on every run. Persists JSONL independently of the
-  contract above.
+  contract above; `real_audit_rows` is the read side of that same file.
 """
 
 from __future__ import annotations
@@ -107,6 +110,50 @@ def mock_audit_rows() -> list[AuditRow]:
             "timestamp_aprovacao": "2026-08-23T16:50:00",
         },
     ]
+
+
+def _status_from_log_entry(entry: dict[str, Any]) -> str:
+    """Map a JSONL entry's validation fields to Tela 2/3's `status` values.
+
+    `validado_por_humano` has no writer on the real graph path — only Tela
+    2's session-scoped decisions ever set "aprovado"/"rejeitado" — so this
+    only distinguishes "pendente" (needs Tela 2's attention) from
+    "nao_necessaria" (the graph never required a human to look at it).
+    """
+    if not entry.get("requer_validacao_humana"):
+        return "nao_necessaria"
+    if entry.get("validado_por_humano"):
+        return "aprovado"
+    return "pendente"
+
+
+def real_audit_rows() -> list[AuditRow]:
+    """Real audit history, read from `ClinicalAuditLogger`'s JSONL trail.
+
+    Every logged run becomes a row — not just the ones requiring human
+    validation — so Tela 3's "Auditoria e Histórico" reflects the full real
+    trail; only rows with `status == "pendente"` enter Tela 2's queue.
+
+    `id` is the row's 1-based position in the full JSONL file, so it stays
+    stable across a read even though every row is included.
+    """
+    rows: list[AuditRow] = []
+    for i, entry in enumerate(ClinicalAuditLogger.ler_logs_auditoria(), start=1):
+        rows.append(
+            {
+                "id": i,
+                "timestamp": entry.get("timestamp_utc", ""),
+                "pergunta": entry.get("pergunta", ""),
+                "paciente_id": entry.get("paciente_id"),
+                "fontes_rag": entry.get("documentos_retornados", []),
+                "resposta_llm": entry.get("resposta_final", ""),
+                "flags_seguranca": entry.get("sinais_alarme", []),
+                "status": _status_from_log_entry(entry),
+                "aprovador": None,
+                "timestamp_aprovacao": None,
+            }
+        )
+    return rows
 
 
 def apply_decision(

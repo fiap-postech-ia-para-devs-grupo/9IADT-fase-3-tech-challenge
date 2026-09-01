@@ -11,16 +11,7 @@ from hospital_assistant.safety.audit_log import (
 )
 
 
-def limpar_log():
-    caminho = ClinicalAuditLogger.LOG_ESTRUTURADO_PATH
-
-    if os.path.exists(caminho):
-        os.remove(caminho)
-
-
-def test_registra_evento_jsonl():
-    limpar_log()
-
+def test_registra_evento_jsonl(limpar_auditoria):
     state = {
         "paciente_id": "TESTE-001",
         "paciente_idade": 30,
@@ -58,9 +49,7 @@ def test_registra_evento_jsonl():
     assert registro["fontes_citadas"] == ["Fonte de teste"]
 
 
-def test_identifica_pendencia_medica():
-    limpar_log()
-
+def test_identifica_pendencia_medica(limpar_auditoria):
     state = {
         "paciente_id": "TESTE-002",
         "categoria_triagem": "geral",
@@ -84,9 +73,7 @@ def test_identifica_pendencia_medica():
     assert pendencias[0]["validado_por_humano"] is False
 
 
-def test_evento_validado_nao_fica_pendente():
-    limpar_log()
-
+def test_evento_validado_nao_fica_pendente(limpar_auditoria):
     state = {
         "paciente_id": "TESTE-003",
         "categoria_triagem": "geral",
