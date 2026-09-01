@@ -12,6 +12,59 @@ Este documento só cataloga evidência (passo 1 da issue #30). A decisão de
 mitigação (ex: threshold mínimo de score) e sua implementação ficam para o
 passo 2, depois de revisão.
 
+## Passo 2 — decisão: threshold de score não é viável, adiado
+
+Investigado após o catálogo acima. Duas formulações foram consideradas para
+o candidato "threshold mínimo de score" citado no plano da issue #30:
+
+1. **Reordenar/filtrar por score para corrigir as 3 queries que falham.**
+   Não viável: os scores top-1 das 3 queries que falham (0.4649, 0.5608,
+   0.5385) ficam **acima** dos scores top-1 de várias queries que funcionam
+   corretamente (0.2925, 0.3307, 0.3448, 0.4289). Um corte único não separa
+   os dois grupos sem também descartar acertos.
+
+2. **Sinalizar "baixa confiança" quando o score top-1 cai abaixo de um piso**
+   (não para corrigir ranking, só para não apresentar uma fonte fraca como
+   se fosse autoritativa). Calibrado com queries fora do domínio clínico —
+   e o resultado invalida a premissa: score de cosseno cru, com
+   `all-MiniLM-L6-v2` neste corpus, **não distingue relevância temática**.
+
+   | query | score top-1 | fonte top-1 |
+   |---|---|---|
+   | `qual a capital da frança?` | 0.3378 | `sepse.md` |
+   | `como faço bolo de chocolate` | 0.3037 | `sepse.md` |
+   | `previsão do tempo amanhã` | 0.3930 | `faq_medicos_exames_urgentes.md` |
+   | `qual o sentido da vida` | 0.3930 | `faq_medicos_exames_urgentes.md` |
+   | `dor no peito` | 0.1808 | `faq_medicos_exames_urgentes.md` |
+   | `dor torácica` | 0.2291 | `faq_medicos_exames_urgentes.md` |
+   | `sepse grave` | 0.2055 | `faq_medicos_exames_urgentes.md` |
+
+   Queries completamente fora de domínio (`sentido da vida`, `capital da
+   frança`) pontuam **mais alto** que queries clínicas genuínas (`dor no
+   peito`, `sepse grave`). Um piso de confiança baseado em score sinalizaria
+   perguntas clínicas legítimas como "baixa confiança" e deixaria passar
+   perguntas sem relação nenhuma com o corpus — o oposto do que se
+   pretendia.
+
+**Conclusão**: nenhuma das duas formulações do candidato "threshold de
+score" é sustentada pela evidência; nenhuma foi implementada.
+
+Além disso, no estado atual do pipeline (`nodes.py::gerar_sugestao_llm`
+chama `MockLLM`, per #2–#5 ainda não integrados) o `contexto_rag` recuperado
+**não é consumido pela geração** — ele só alimenta `fontes_citadas` /
+`documentos_retornados` no log de auditoria (Tela 2/3), não a sugestão
+mostrada ao clínico. Ou seja, hoje a qualidade de retrieval não afeta a
+resposta do assistente, só o que é citado como fonte na auditoria.
+
+**Passo 2 fica adiado** até que a geração real esteja integrada ao RAG
+(#2–#5, #17) — só então dá para avaliar mitigação (score, threshold,
+re-ranking, busca híbrida, ou troca de modelo) contra o efeito real na
+resposta, em vez de contra um `MockLLM` que ignora o contexto recuperado.
+Mitigação candidata para quando isso acontecer: busca híbrida
+(léxica + semântica) ou re-ranking, já que score de cosseno cru se mostrou
+não confiável isoladamente; troca do modelo de embedding segue fora de
+escopo por `ESTRATEGIA.md` §1.
+
 ---
 
 ### `crise hipertensiva`
