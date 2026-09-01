@@ -7,6 +7,7 @@ MedQuAD em data/raw/.
 
 from __future__ import annotations
 
+import re
 import shutil
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -26,21 +27,34 @@ CHUNK_OVERLAP = 100
 EMBEDDING_KWARGS = {"encode_kwargs": {"normalize_embeddings": True}}
 COLLECTION_METADATA = {"hnsw:space": "cosine"}
 
+# Boilerplate idêntico repetido em todo protocolo sintético (disclaimer
+# institucional) — mantido no arquivo .md para quem ler o corpus bruto, mas
+# descartado antes de embedar: um modelo pequeno como all-MiniLM-L6-v2 dá
+# peso desproporcional a frases compartilhadas entre documentos curtos,
+# diluindo o sinal do conteúdo clínico que de fato diferencia cada protocolo
+# (achado do #9, per issue #7).
+_BOILERPLATE_LINE = re.compile(
+    r"\*\*Hospital fictício — Protocolo Sintético \(uso educacional, Tech Challenge Fase 3\)\*\*\n?"
+)
+_OBSERVACAO_SECTION = re.compile(r"\n## Observação\n.*", re.DOTALL)
+
 
 def _load_documents() -> list[tuple[str, str]]:
     """Retorna [(texto, fonte_relativa)] para cada .md em data/raw/.
 
-    Descarta o rodapé "--- Fonte: ..." (provenance para leitura humana do
-    arquivo bruto) antes de retornar: a fonte já vai no metadata via nome do
-    arquivo, e sem esse corte o splitter às vezes isola o rodapé num chunk
-    próprio sem conteúdo médico, que ainda assim recebe score não-trivial e
-    polui o retrieval.
+    Descarta, antes de embedar: o rodapé "--- Fonte: ..." do MedQuAD (a fonte
+    já vai no metadata via nome do arquivo — sem esse corte o splitter às
+    vezes isola o rodapé num chunk próprio sem conteúdo médico, que ainda
+    assim recebe score não-trivial) e o boilerplate institucional/disclaimer
+    dos protocolos sintéticos, repetido quase idêntico em todo documento.
     """
     documents = []
     for path in sorted(RAW_DATA_DIR.rglob("*.md")):
         source = str(path.relative_to(RAW_DATA_DIR))
-        text = path.read_text(encoding="utf-8").split("\n---\nFonte:")[0].strip()
-        documents.append((text, source))
+        text = path.read_text(encoding="utf-8").split("\n---\nFonte:")[0]
+        text = _BOILERPLATE_LINE.sub("", text)
+        text = _OBSERVACAO_SECTION.sub("", text)
+        documents.append((text.strip(), source))
     return documents
 
 
