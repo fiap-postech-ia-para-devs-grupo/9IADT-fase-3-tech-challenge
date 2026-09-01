@@ -18,7 +18,7 @@ _NODE_ORDER = (
 )
 
 
-def build_graph():
+def build_hospital_graph():
     graph = StateGraph(AssistantState)
     for name in _NODE_ORDER:
         graph.add_node(name, getattr(nodes, name))
@@ -37,7 +37,7 @@ _compiled = None
 def run(pergunta: str, paciente_id: str | None = None) -> AssistantState:
     global _compiled
     if _compiled is None:
-        _compiled = build_graph()
+        _compiled = build_hospital_graph()
 
     initial: AssistantState = {
         "paciente_id": paciente_id,

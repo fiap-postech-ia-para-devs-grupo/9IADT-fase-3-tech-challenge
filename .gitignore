@@ -40,6 +40,8 @@ venv/
 # Project-specific mock/derived data — regenerate via seed_mock_data.py / ingest.py
 data/patients_mock.db
 data/audit.db
+clinical_audit.log
+clinical_audit.jsonl
 data/chroma/*
 !data/chroma/.gitkeep
 data/processed/*

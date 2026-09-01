@@ -1,13 +1,110 @@
-"""Unit tests for the Tela 3 (Auditoria) status/paciente/data filters.
+import json
+import os
 
-Bloco 1 — Pessoa D. Exercises `filter_audit_rows` directly against the
-mock rows returned by `mock_audit_rows`, so the filter logic in app.py
-stays a thin wiring layer over something testable without Streamlit.
-"""
+from hospital_assistant.safety.audit_log import (
+    ClinicalAuditLogger,
+    filter_audit_rows,
+    mock_audit_rows,
+)
 
-from __future__ import annotations
 
-from hospital_assistant.safety.audit_log import filter_audit_rows, mock_audit_rows
+def limpar_log():
+    caminho = ClinicalAuditLogger.LOG_ESTRUTURADO_PATH
+
+    if os.path.exists(caminho):
+        os.remove(caminho)
+
+
+def test_registra_evento_jsonl():
+    limpar_log()
+
+    state = {
+        "paciente_id": "TESTE-001",
+        "paciente_idade": 30,
+        "categoria_triagem": "geral",
+        "pergunta": "Qual a conduta para dor torácica aguda?",
+        "resposta_final": ("Procure avaliação presencial."),
+        "sinais_alarme_detectados": [],
+        "bloqueado_por_seguranca": False,
+        "motivo_bloqueio": None,
+        "requer_validacao_humana": False,
+        "validado_por_humano": False,
+        "fontes_citadas": ["Fonte de teste"],
+        "passos_processamento": [
+            "Router iniciado",
+            "Validação concluída",
+        ],
+    }
+
+    ClinicalAuditLogger.registrar_evento(state)
+
+    assert os.path.exists(ClinicalAuditLogger.LOG_ESTRUTURADO_PATH)
+
+    with open(
+        ClinicalAuditLogger.LOG_ESTRUTURADO_PATH,
+        encoding="utf-8",
+    ) as arquivo:
+        linha = arquivo.readline()
+
+    registro = json.loads(linha)
+
+    assert registro["paciente_id"] == "TESTE-001"
+
+    assert registro["categoria_triagem"] == "GERAL"
+
+    assert registro["fontes_citadas"] == ["Fonte de teste"]
+
+
+def test_identifica_pendencia_medica():
+    limpar_log()
+
+    state = {
+        "paciente_id": "TESTE-002",
+        "categoria_triagem": "geral",
+        "pergunta": ("Qual remédio devo prescrever?"),
+        "resposta_final": ("Solicitação encaminhada para validação."),
+        "requer_validacao_humana": True,
+        "validado_por_humano": False,
+        "fontes_citadas": ["Fonte de teste"],
+    }
+
+    ClinicalAuditLogger.registrar_evento(state)
+
+    pendencias = ClinicalAuditLogger.ler_pendencias()
+
+    assert len(pendencias) == 1
+
+    assert pendencias[0]["paciente_id"] == "TESTE-002"
+
+    assert pendencias[0]["requer_validacao_humana"] is True
+
+    assert pendencias[0]["validado_por_humano"] is False
+
+
+def test_evento_validado_nao_fica_pendente():
+    limpar_log()
+
+    state = {
+        "paciente_id": "TESTE-003",
+        "categoria_triagem": "geral",
+        "pergunta": ("Pergunta validada."),
+        "resposta_final": ("Resposta validada."),
+        "requer_validacao_humana": True,
+        "validado_por_humano": True,
+        "fontes_citadas": [],
+    }
+
+    ClinicalAuditLogger.registrar_evento(state)
+
+    pendencias = ClinicalAuditLogger.ler_pendencias()
+
+    assert pendencias == []
+
+
+# =============================================================
+# Tela 3 (Auditoria) — filtros sobre mock_audit_rows/filter_audit_rows.
+# Contrato consumido por app.py; não deve quebrar com a reconciliação.
+# =============================================================
 
 
 def test_no_filters_returns_all_rows():
