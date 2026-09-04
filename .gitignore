@@ -42,6 +42,7 @@ data/patients_mock.db
 data/audit.db
 clinical_audit.log
 clinical_audit.jsonl
+dataprep.log
 data/chroma/*
 !data/chroma/.gitkeep
 data/processed/*
