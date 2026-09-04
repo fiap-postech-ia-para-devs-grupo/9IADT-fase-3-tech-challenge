@@ -1,0 +1,21 @@
+# Tema do Streamlit. O CSS em `ui/tema.py` cobre os componentes próprios do
+# portal (badges, cartões de fonte, tabelas), mas a cor de destaque dos widgets
+# nativos — botão primário, foco de input, seleção de rádio — só é configurável
+# aqui. Sem isto, o botão do módulo ativo sai no vermelho padrão do Streamlit,
+# que briga com o carmim usado para alerta clínico.
+#
+# Os valores espelham as constantes de `ui/tema.py`; se mudarem lá, mude aqui.
+# Vale para os dois entry points (`app.py` e `portal.py`): é configuração de
+# projeto, e a mudança é apenas visual.
+
+[theme]
+primaryColor = "#0F6B62"
+backgroundColor = "#F6F9F8"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F1F1D"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

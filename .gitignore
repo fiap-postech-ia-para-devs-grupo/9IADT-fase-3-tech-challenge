@@ -61,3 +61,7 @@ data/processed/*
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Logs de execução local do Streamlit
+streamlit.log
+portal.log

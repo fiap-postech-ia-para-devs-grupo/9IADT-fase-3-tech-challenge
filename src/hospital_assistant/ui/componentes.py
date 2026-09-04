@@ -1,0 +1,238 @@
+"""Componentes de apresentação: badges, formatação de saída e paginação.
+
+O problema que este módulo resolve: as telas originais entregam estruturas
+cruas ao Streamlit — uma lista de dicionários vira `[object Object]` na
+tabela, um timestamp ISO com microssegundos e fuso ocupa meia coluna, e o
+status aparece como `nao_necessaria`. Nada disso é legível para um médico.
+
+As funções aqui são puras (recebem dados, devolvem texto ou DataFrame) para
+que possam ser testadas sem subir o Streamlit — o que também mantém o
+`portal.py` fino, cuidando só de layout e interação.
+"""
+
+from __future__ import annotations
+
+import html
+from datetime import datetime
+from typing import Any
+
+import pandas as pd
+
+from hospital_assistant.ui import rotulos, tema
+
+# ---------------------------------------------------------------------------
+# Formatação de valores
+# ---------------------------------------------------------------------------
+
+
+def formatar_data_hora(valor: str) -> str:
+    """Converte timestamp ISO em `dd/mm/aaaa HH:MM`.
+
+    A trilha de auditoria grava com microssegundos e fuso
+    (`2026-09-04T22:30:46.812498+00:00`), o que é correto para o registro e
+    ilegível numa tabela. Valor não reconhecido volta intacto: é melhor mostrar
+    o dado bruto do que esconder que ele veio fora do formato esperado.
+    """
+    if not valor:
+        return "—"
+    try:
+        return datetime.fromisoformat(valor).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return valor
+
+
+def formatar_fontes(fontes: Any) -> str:
+    """Resume a lista de chunks do RAG como `arquivo (score)`, separados por vírgula.
+
+    É o campo que aparecia como `[object Object]`: uma lista de dicionários
+    entregue direto ao `st.dataframe`.
+    """
+    if not isinstance(fontes, list) or not fontes:
+        return "—"
+
+    partes: list[str] = []
+    for fonte in fontes:
+        if not isinstance(fonte, dict):
+            continue
+        arquivo = str(fonte.get("source", "desconhecida")).replace("\\", "/").split("/")[-1]
+        score = fonte.get("score")
+        if isinstance(score, int | float):
+            partes.append(f"{arquivo} ({score:.2f})")
+        else:
+            partes.append(arquivo)
+    return ", ".join(partes) if partes else "—"
+
+
+def formatar_flags(flags: Any) -> str:
+    """Traduz as flags internas do guardrail para nomes legíveis."""
+    if not isinstance(flags, list) or not flags:
+        return "—"
+    return ", ".join(rotulos.rotular_flag(str(flag)) for flag in flags)
+
+
+def resumir_texto(texto: Any, limite: int = 90) -> str:
+    """Colapsa quebras de linha e corta o texto para caber numa célula."""
+    if not texto:
+        return "—"
+    limpo = " ".join(str(texto).split())
+    return limpo if len(limpo) <= limite else limpo[: limite - 1] + "…"
+
+
+def nome_do_status(status: str) -> str:
+    """Rótulo legível de um status de validação."""
+    return tema.CORES_STATUS.get(status, (tema.NEUTRO, tema.NEUTRO_FUNDO, status))[2]
+
+
+# ---------------------------------------------------------------------------
+# Badges e cartões
+# ---------------------------------------------------------------------------
+
+
+def badge_status(status: str) -> str:
+    """Badge colorido de um status de validação."""
+    cor, fundo, rotulo = tema.CORES_STATUS.get(
+        status, (tema.NEUTRO, tema.NEUTRO_FUNDO, status)
+    )
+    return f'<span class="badge" style="color:{cor};background:{fundo}">{html.escape(rotulo)}</span>'
+
+
+def badge_categoria(categoria: str) -> str:
+    """Badge colorido de uma categoria da base de conhecimento."""
+    cor, fundo = tema.CORES_CATEGORIA.get(categoria, (tema.NEUTRO, tema.NEUTRO_FUNDO))
+    rotulo = rotulos.CATEGORIAS.get(categoria, categoria)
+    return f'<span class="badge" style="color:{cor};background:{fundo}">{html.escape(rotulo)}</span>'
+
+
+def cartao_fonte(fonte: dict[str, Any], posicao: int) -> str:
+    """Cartão de uma fonte do RAG: arquivo, score com barra e trecho recuperado.
+
+    Substitui o dump de JSON cru. O score vira barra além de número porque a
+    comparação entre as três fontes é o que interessa ao médico ao decidir se
+    a resposta está bem fundamentada — e comparar barras é mais rápido que
+    comparar decimais.
+    """
+    arquivo = str(fonte.get("source", "desconhecida")).replace("\\", "/")
+    trecho = resumir_texto(fonte.get("text", ""), limite=320)
+    score = fonte.get("score")
+
+    if isinstance(score, int | float):
+        largura = max(0.0, min(1.0, float(score))) * 100
+        score_html = f'<span class="fonte-score">similaridade {score:.3f}</span>'
+        barra = f'<div class="barra-score"><div style="width:{largura:.1f}%"></div></div>'
+    else:
+        score_html = '<span class="fonte-score">sem score</span>'
+        barra = ""
+
+    return f"""
+<div class="fonte-card">
+  <div class="fonte-topo">
+    <span class="fonte-arquivo">[{posicao}] {html.escape(arquivo)}</span>
+    {score_html}
+  </div>
+  <div class="fonte-trecho">{html.escape(trecho)}</div>
+  {barra}
+</div>
+"""
+
+
+def cartao_faq(item: dict[str, Any]) -> str:
+    """Cartão de uma pergunta frequente, com badge de categoria e fonte."""
+    return f"""
+<div class="faq-item">
+  <div class="faq-pergunta">{html.escape(item["pergunta"])}</div>
+  <div>{badge_categoria(item["categoria"])}</div>
+  <div class="faq-resposta" style="margin-top:.55rem">{html.escape(item["resposta"])}</div>
+  <span class="faq-fonte">{html.escape(item["fonte"])}</span>
+</div>
+"""
+
+
+def metrica(valor: Any, rotulo: str) -> str:
+    """Cartão de indicador numérico para o painel."""
+    return f"""
+<div class="metrica">
+  <div class="metrica-valor">{html.escape(str(valor))}</div>
+  <div class="metrica-rotulo">{html.escape(rotulo)}</div>
+</div>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Tabelas
+# ---------------------------------------------------------------------------
+
+# Formatador por campo. Quem não estiver aqui passa por `resumir_texto`.
+_FORMATADORES = {
+    "timestamp": formatar_data_hora,
+    "timestamp_aprovacao": formatar_data_hora,
+    "fontes_rag": formatar_fontes,
+    "flags_seguranca": formatar_flags,
+    "status": nome_do_status,
+}
+
+
+def tabela_auditoria(linhas: list[dict[str, Any]]) -> pd.DataFrame:
+    """Monta o DataFrame da auditoria com colunas legíveis e valores formatados.
+
+    A ordem das colunas é fixada aqui (e não deixada por conta da ordem das
+    chaves do dicionário) porque a leitura de uma linha de auditoria tem uma
+    sequência natural: quando, quem perguntou, sobre quem, o que respondeu,
+    com base em quê, e em que situação está.
+    """
+    ordem = [
+        "id",
+        "timestamp",
+        "pergunta",
+        "paciente_id",
+        "resposta_llm",
+        "fontes_rag",
+        "flags_seguranca",
+        "status",
+        "aprovador",
+    ]
+
+    if not linhas:
+        return pd.DataFrame(columns=[rotulos.rotular(campo) for campo in ordem])
+
+    registros: list[dict[str, Any]] = []
+    for linha in linhas:
+        registro: dict[str, Any] = {}
+        for campo in ordem:
+            valor = linha.get(campo)
+            formatador = _FORMATADORES.get(campo)
+            if formatador is not None:
+                registro[rotulos.rotular(campo)] = formatador(valor)  # type: ignore[arg-type]
+            elif campo == "paciente_id":
+                registro[rotulos.rotular(campo)] = valor or "—"
+            else:
+                registro[rotulos.rotular(campo)] = resumir_texto(valor)
+        registros.append(registro)
+
+    return pd.DataFrame(registros)
+
+
+def tabela_generica(linhas: list[dict[str, Any]], campos: list[str] | None = None) -> pd.DataFrame:
+    """DataFrame de uma lista de dicionários, com nomes de coluna legíveis."""
+    if not linhas:
+        return pd.DataFrame()
+
+    campos = campos or list(linhas[0])
+    registros = [
+        {rotulos.rotular(campo): resumir_texto(linha.get(campo), limite=140) for campo in campos}
+        for linha in linhas
+    ]
+    return pd.DataFrame(registros)
+
+
+def paginar(linhas: list[Any], pagina: int, por_pagina: int) -> tuple[list[Any], int]:
+    """Recorta uma página e devolve `(itens, total_de_paginas)`.
+
+    A página é normalizada para o intervalo válido em vez de levantar erro:
+    o número vem de um widget que pode ficar defasado quando um filtro reduz
+    o total, e nesse caso a resposta certa é mostrar a última página, não
+    quebrar a tela.
+    """
+    total = max(1, -(-len(linhas) // por_pagina))  # divisão para cima
+    pagina = max(1, min(pagina, total))
+    inicio = (pagina - 1) * por_pagina
+    return linhas[inicio : inicio + por_pagina], total
