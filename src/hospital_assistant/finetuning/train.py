@@ -112,21 +112,41 @@ def extract_loss_curves(log_history: list[dict[str, Any]]) -> dict[str, Any]:
     return {"train": train, "eval": eval_, "final_eval_perplexity": perplexidade}
 
 
-def _kwarg_de_sequencia(sft_config: Any) -> dict[str, int]:
-    """Nome do parâmetro de comprimento máximo aceito por esta versão do `trl`.
+def _sft_kwargs(sft_config: Any) -> dict[str, Any]:
+    """Monta os kwargs de `SFTConfig` compatíveis com a versão instalada do `trl`.
 
-    O `trl` renomeou `SFTConfig.max_seq_length` para `max_length`. Como o
-    notebook instala sempre a versão mais recente (`pip install -U trl`), fixar
-    um dos dois nomes faria o `SFTTrainer` morrer com `TypeError` — depois de
-    ~3GB de instalação, do preparo do dataset e do download do modelo, numa
-    sessão de T4 que é cara em tempo. Descobrir pela assinatura evita apostar
-    numa versão.
+    Duas defesas contra deriva de API, ambas observadas de verdade rodando no
+    Colab (que instala sempre a versão mais recente):
+
+    - o parâmetro de comprimento máximo foi renomeado de `max_seq_length` para
+      `max_length`;
+    - o `SFTConfig` da 1.12 deixou de aceitar `warmup_ratio`, que é um
+      parâmetro clássico do `TrainingArguments`.
+
+    Fixar qualquer um dos dois faz o `SFTTrainer` morrer com `TypeError` depois
+    de ~3GB de instalação, do preparo do dataset e do download de 6GB de
+    modelo — dentro de uma sessão de GPU que é cara em tempo. Descobrir pela
+    assinatura custa três linhas e não expira junto com a versão.
+
+    Os parâmetros descartados são logados: perder `warmup_ratio` em silêncio
+    mudaria o treino sem deixar rastro no relatório.
     """
     import inspect
 
     parametros = inspect.signature(sft_config.__init__).parameters
-    chave = "max_seq_length" if "max_seq_length" in parametros else "max_length"
-    return {chave: MAX_SEQ_LENGTH}
+
+    chave_seq = "max_seq_length" if "max_seq_length" in parametros else "max_length"
+    kwargs: dict[str, Any] = {chave_seq: MAX_SEQ_LENGTH}
+
+    descartados = sorted(k for k in TRAINING_KWARGS if k not in parametros)
+    if descartados:
+        logger.warning(
+            "SFTConfig desta versão do trl não aceita %s — ignorado(s) nesta execução.",
+            ", ".join(descartados),
+        )
+
+    kwargs.update({k: v for k, v in TRAINING_KWARGS.items() if k in parametros})
+    return kwargs
 
 
 def _carregar_splits() -> tuple[Any, Any]:
@@ -225,8 +245,7 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
         formatting_func=formatting_func,
         args=SFTConfig(
             output_dir=str(output_dir),
-            **_kwarg_de_sequencia(SFTConfig),
-            **TRAINING_KWARGS,
+            **_sft_kwargs(SFTConfig),
         ),
     )
 
@@ -239,7 +258,7 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
 
     metricas = extract_loss_curves(trainer.state.log_history)
     metricas["modelo_base"] = modelo_base
-    metricas["hiperparametros"] = {**LORA_KWARGS, **TRAINING_KWARGS}
+    metricas["hiperparametros"] = {**LORA_KWARGS, **_sft_kwargs(SFTConfig)}
     metricas["exemplos"] = {"train": len(train_ds), "val": len(val_ds)}
 
     FINETUNING_METRICS.parent.mkdir(parents=True, exist_ok=True)

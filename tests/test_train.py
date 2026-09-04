@@ -10,12 +10,16 @@ tokenizer, e a extração das curvas de loss que alimentam
 
 from __future__ import annotations
 
+import logging
+
 from hospital_assistant.finetuning.schema import InstructionExample
 from hospital_assistant.finetuning.train import (
     BASE_MODEL_ESPELHO,
     BASE_MODEL_OFICIAL,
     LORA_KWARGS,
+    MAX_SEQ_LENGTH,
     TRAINING_KWARGS,
+    _sft_kwargs,
     extract_loss_curves,
     format_for_sft,
 )
@@ -108,3 +112,91 @@ def test_extract_loss_curves_ignora_registro_sem_loss() -> None:
     curvas = extract_loss_curves([{"train_runtime": 123.4, "epoch": 3.0}])
 
     assert curvas["train"] == []
+
+
+# --------------------------------------------------------------------------
+# _sft_kwargs — tolerância à deriva de API do trl
+# --------------------------------------------------------------------------
+
+
+class SFTConfigAntigo:
+    """Assinatura do `trl` anterior à 1.12: `max_seq_length` e `warmup_ratio`."""
+
+    def __init__(
+        self,
+        output_dir=None,
+        max_seq_length=None,
+        warmup_ratio=None,
+        per_device_train_batch_size=None,
+        gradient_accumulation_steps=None,
+        num_train_epochs=None,
+        learning_rate=None,
+        lr_scheduler_type=None,
+        logging_steps=None,
+        optim=None,
+        fp16=None,
+        eval_strategy=None,
+        save_strategy=None,
+        save_total_limit=None,
+        report_to=None,
+    ) -> None: ...
+
+
+class SFTConfigNovo:
+    """`trl` 1.12: renomeou para `max_length` e removeu `warmup_ratio`."""
+
+    def __init__(
+        self,
+        output_dir=None,
+        max_length=None,
+        per_device_train_batch_size=None,
+        gradient_accumulation_steps=None,
+        num_train_epochs=None,
+        learning_rate=None,
+        lr_scheduler_type=None,
+        logging_steps=None,
+        optim=None,
+        fp16=None,
+        eval_strategy=None,
+        save_strategy=None,
+        save_total_limit=None,
+        report_to=None,
+    ) -> None: ...
+
+
+def test_sft_kwargs_usa_max_seq_length_na_versao_antiga() -> None:
+    kwargs = _sft_kwargs(SFTConfigAntigo)
+
+    assert kwargs["max_seq_length"] == MAX_SEQ_LENGTH
+    assert "max_length" not in kwargs
+
+
+def test_sft_kwargs_usa_max_length_na_versao_nova() -> None:
+    """O `trl` renomeou o parâmetro; fixar o nome antigo mata o treino no Colab."""
+    kwargs = _sft_kwargs(SFTConfigNovo)
+
+    assert kwargs["max_length"] == MAX_SEQ_LENGTH
+    assert "max_seq_length" not in kwargs
+
+
+def test_sft_kwargs_descarta_parametro_inexistente() -> None:
+    """`warmup_ratio` sumiu do SFTConfig na 1.12 — passá-lo levanta TypeError."""
+    assert "warmup_ratio" not in _sft_kwargs(SFTConfigNovo)
+
+
+def test_sft_kwargs_preserva_os_hiperparametros_fechados() -> None:
+    """Descartar o incompatível não pode levar junto o que a ESTRATEGIA fixou."""
+    kwargs = _sft_kwargs(SFTConfigNovo)
+
+    assert kwargs["per_device_train_batch_size"] == 4
+    assert kwargs["gradient_accumulation_steps"] == 4
+    assert kwargs["num_train_epochs"] == 3
+    assert kwargs["learning_rate"] == 2e-4
+
+
+def test_sft_kwargs_avisa_no_log_ao_descartar(caplog) -> None:
+    """Perder um parâmetro em silêncio mudaria o treino sem rastro no relatório."""
+    with caplog.at_level(logging.WARNING):
+        _sft_kwargs(SFTConfigNovo)
+
+    assert "warmup_ratio" in caplog.text

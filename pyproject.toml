@@ -1,7 +1,10 @@
 [project]
 name = "hospital-assistant-fase3"
 version = "0.1.0"
-requires-python = ">=3.11,<3.13"
+# O teto precisa acomodar o Python do Colab, que já roda 3.13: com `<3.13` o
+# `pip install -e .` do notebook falha com "requires a different Python", e o
+# projeto só continua importável ali por causa do `sys.path.insert`.
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "langchain>=0.1.16",
     "langchain-community>=0.0.34",
