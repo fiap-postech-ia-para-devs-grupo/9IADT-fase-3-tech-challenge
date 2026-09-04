@@ -45,8 +45,14 @@ clinical_audit.jsonl
 dataprep.log
 data/chroma/*
 !data/chroma/.gitkeep
+# Os splits de treino/validação SÃO versionados: PubMedQA e MedQuAD vêm do
+# Hugging Face sem revisão fixada, então uma regeneração futura pode não sair
+# idêntica — e sem o arquivo no Git não haveria registro de sobre o que o
+# adapter publicado foi de fato treinado. São ~1,3MB.
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/train.jsonl
+!data/processed/val.jsonl
 
 # Model artifacts — only the adapter reference lives in results/, not weights
 *.safetensors
