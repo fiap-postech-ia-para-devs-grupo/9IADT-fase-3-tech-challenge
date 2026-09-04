@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from hospital_assistant.db.patient_tools import get_pending_exams
 from hospital_assistant.graph.state import AssistantState
-from hospital_assistant.llm.model_loader import load_llm
+from hospital_assistant.llm.model_loader import get_llm
 from hospital_assistant.rag.retriever import retrieve
 from hospital_assistant.safety.audit_log import ClinicalAuditLogger
 from hospital_assistant.safety.guardrails import ClinicalGuardrails
@@ -49,8 +49,18 @@ def consultar_protocolo(state: AssistantState) -> AssistantState:
 
 
 def gerar_sugestao_llm(state: AssistantState) -> AssistantState:
-    llm = load_llm()
-    sugestao = llm.generate(state["pergunta"])
+    """Gera a sugestão com o contexto que os nós anteriores recuperaram.
+
+    O `contexto_rag` e os `exames_pendentes` vão para o prompt (via
+    `llm/prompt.py`), não só para a tela: sem isso o RAG seria apenas
+    decorativo e o requisito do PDF de "contextualizar as respostas da LLM com
+    informações atualizadas do paciente" não estaria atendido (issue #5).
+    """
+    sugestao = get_llm().generate(
+        state["pergunta"],
+        contexto_rag=state.get("contexto_rag"),
+        exames_pendentes=state.get("exames_pendentes"),
+    )
     return {**state, "sugestao_llm": sugestao}
 
 
