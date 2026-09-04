@@ -71,8 +71,14 @@ def comparar(
             try:
                 respostas[chave] = modelo.generate(pergunta)
             except Exception as erro:  # noqa: BLE001 — falha de um modelo não aborta a rodada
-                logger.warning("Falha ao gerar (%s) para %r: %s", chave, pergunta, erro)
-                respostas[chave] = f"[ERRO: {type(erro).__name__}: {erro}]"
+                # `repr` e não `str`: um AttributeError de atributo ausente vem
+                # com mensagem vazia, e `str(erro)` produziria "[ERRO:
+                # AttributeError: ]" — texto que não diz nada a quem for
+                # investigar o JSON depois. O traceback vai para o log.
+                logger.warning(
+                    "Falha ao gerar (%s) para %r", chave, pergunta, exc_info=True
+                )
+                respostas[chave] = f"[ERRO: {erro!r}]"
 
         linhas.append(
             {
@@ -212,16 +218,20 @@ def _carregar_modelo_base() -> Any:
                 self._carregado = (tokenizer, modelo)
 
             tokenizer, modelo = self._carregado
+            # `return_dict=True`: ver a nota em `llm/model_loader.py` — o
+            # transformers 5 devolve BatchEncoding, não tensor.
             entrada = tokenizer.apply_chat_template(
                 build_messages(pergunta, contexto_rag, exames_pendentes),
                 tokenize=True,
                 add_generation_prompt=True,
                 return_tensors="pt",
+                return_dict=True,
             ).to(modelo.device)
             saida = modelo.generate(
-                entrada, max_new_tokens=512, do_sample=False, pad_token_id=tokenizer.pad_token_id
+                **entrada, max_new_tokens=512, do_sample=False, pad_token_id=tokenizer.pad_token_id
             )
-            return tokenizer.decode(saida[0][entrada.shape[-1] :], skip_special_tokens=True).strip()
+            n_prompt = entrada["input_ids"].shape[-1]
+            return tokenizer.decode(saida[0][n_prompt:], skip_special_tokens=True).strip()
 
     return _BaseLLM(resolve_base_model())
 

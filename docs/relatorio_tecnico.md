@@ -171,8 +171,39 @@ erro nenhum** — o sintoma seria "o fine-tuning não melhorou nada".
 
 ### 3.3 Avaliação: base vs. fine-tuned
 
-_(pendente — depende da execução do treino no Colab; `evaluate.py` e o notebook
-já estão prontos e gravam `results/eval_comparativo.json`.)_
+**O treino foi executado.** Uma sessão de Colab com GPU T4, 165 passos, 3
+épocas sobre os 869 exemplos de treino e 97 de validação, em 51 minutos. O
+adapter LoRA resultante está publicado em
+[`agendesse/hospital-assistant-llama32-3b-lora`](https://huggingface.co/agendesse/hospital-assistant-llama32-3b-lora),
+e as curvas completas em `results/finetuning_metrics.json`.
+
+| Época | Loss de treino | Loss de validação | Entropia | Acurácia de token |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 1.2303 | 1.2504 | 1.2835 | 0.7215 |
+| 2 | 1.1336 | 1.2084 | 1.2361 | 0.7312 |
+| 3 | 1.1682 | **1.2008** | 1.2194 | **0.7324** |
+
+Ao longo dos 165 passos, a loss de treino cai de **2.4830** (passo 5) para
+**1.1696** (passo 165) — menos da metade. A **perplexidade final é 3.3227**.
+
+Duas leituras importam mais que os números isolados. A primeira: a loss de
+validação cai monotonicamente nas três épocas e permanece **acima** da de
+treino por margem pequena e estável. Não há a divergência entre as duas curvas
+que caracteriza overfitting, o que indica que o orçamento de 3 épocas fechado
+na ESTRATEGIA §3 acertou o ponto — nem sobrou capacidade ociosa, nem passou.
+A segunda: a acurácia de token sobe de forma consistente (0.7215 → 0.7324), o
+que confirma que o ganho é real e não artefato de uma métrica só.
+
+O modelo base registrado é `unsloth/Llama-3.2-3B-Instruct`, o espelho
+não-gated: a licença da Meta não foi aprovada a tempo e o fallback de
+`resolve_base_model()` entrou em ação sozinho, exatamente como projetado. Os
+pesos são os mesmos; muda apenas a origem do download.
+
+Vale registrar também o que **não** está no arquivo de métricas:
+`warmup_ratio` não aparece entre os hiperparâmetros porque o `SFTConfig` do
+`trl` 1.12 deixou de aceitá-lo, e `_sft_kwargs` o descartou com aviso em log.
+O artefato descreve o treino que de fato aconteceu, não a constante declarada
+no código — distinção que importa quando o número vai para um relatório.
 
 A avaliação combina duas métricas com papéis diferentes:
 

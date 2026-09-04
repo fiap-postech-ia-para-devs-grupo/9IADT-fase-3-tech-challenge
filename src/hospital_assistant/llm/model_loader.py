@@ -174,18 +174,28 @@ class FineTunedLLM:
         tokenizer, modelo = self._carregar()
 
         mensagens = build_messages(pergunta, contexto_rag, exames_pendentes)
+
+        # `return_dict=True` é obrigatório: no transformers 5 o
+        # `apply_chat_template` com `tokenize=True` devolve um `BatchEncoding`,
+        # não mais um tensor de ids. Sem isso, `.shape` estoura AttributeError
+        # e a máscara de atenção se perde.
         entrada = tokenizer.apply_chat_template(
-            mensagens, tokenize=True, add_generation_prompt=True, return_tensors="pt"
+            mensagens,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
+            return_dict=True,
         ).to(modelo.device)
 
         saida = modelo.generate(
-            entrada,
+            **entrada,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
             pad_token_id=tokenizer.pad_token_id,
         )
         # Só os tokens novos: o prompt inteiro volta concatenado na saída.
-        return tokenizer.decode(saida[0][entrada.shape[-1] :], skip_special_tokens=True).strip()
+        n_prompt = entrada["input_ids"].shape[-1]
+        return tokenizer.decode(saida[0][n_prompt:], skip_special_tokens=True).strip()
 
 
 def _adapter_disponivel(local_adapter_dir: Path | None) -> str | None:

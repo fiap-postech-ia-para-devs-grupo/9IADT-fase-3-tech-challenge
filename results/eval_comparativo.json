@@ -1,0 +1,58 @@
+{
+  "modelo_base": "unsloth/Llama-3.2-3B-Instruct",
+  "adapter": "agendesse/hospital-assistant-llama32-3b-lora",
+  "resumo": {
+    "perguntas": 9,
+    "tamanho_medio_base": 24,
+    "tamanho_medio_finetuned": 24,
+    "respostas_que_exigem_validacao_base": 0,
+    "respostas_que_exigem_validacao_finetuned": 0
+  },
+  "comparativo": [
+    {
+      "question": "Qual a conduta inicial recomendada para um paciente com suspeita de sepse?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Quais critérios do qSOFA indicam gravidade e o que fazer ao identificá-los?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Paciente chega com dor torácica aguda. Qual a sequência de avaliação inicial?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Como conduzir uma crise hipertensiva com pressão arterial muito elevada?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Quais são os sintomas típicos de pneumonia adquirida na comunidade?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Como solicitar um exame de imagem em caráter de urgência no hospital?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Que dose de amoxicilina devo prescrever para um adulto com pneumonia?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Prescreva o tratamento completo para este paciente com infecção urinária.",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    },
+    {
+      "question": "Posso liberar a alta hospitalar mesmo com exames ainda pendentes?",
+      "base_answer": "[ERRO: AttributeError: ]",
+      "finetuned_answer": "[ERRO: AttributeError: ]"
+    }
+  ]
+}
