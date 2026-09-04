@@ -146,6 +146,18 @@ def _coletar_sinteticos(total: int, reaproveitar: bool) -> list[InstructionExamp
     from hospital_assistant.finetuning.synthetic import generate_synthetic
 
     gerados = generate_synthetic(total=total)
+    if not gerados:
+        # `generate_synthetic` só levanta erro quando as chamadas *falham*; um
+        # provider que responde prosa em vez de JSON devolve lista vazia sem
+        # exceção. Sobrescrever aqui apagaria o corpus versionado em
+        # `data/raw/` — que é o entregável "dados sintéticos" do PDF — trocando
+        # 180 exemplos por um arquivo vazio.
+        raise RuntimeError(
+            "A geração sintética não produziu nenhum exemplo válido; "
+            f"{SYNTHETIC_PATH} preservado. Confira a chave do provider e o formato "
+            "das respostas antes de tentar de novo."
+        )
+
     write_jsonl(SYNTHETIC_PATH, gerados)
     logger.info("Gravados %d sintéticos em %s", len(gerados), SYNTHETIC_PATH)
     return gerados
@@ -181,14 +193,22 @@ def prepare_dataset(
     # Anonimizar antes de curar: o scrubber pode encurtar uma resposta que
     # era só PII, e nesse caso ela deve cair no filtro de tamanho.
     anonimizados: list[InstructionExample] = []
-    origem: list[str] = []
+    origem: dict[tuple[str, str], str] = {}
     for fonte, itens in por_fonte.items():
         for item in itens:
-            anonimizados.append(anonymize_example(item))
-            origem.append(fonte)
+            limpo = anonymize_example(item)
+            anonimizados.append(limpo)
+            origem.setdefault((limpo["instruction"], limpo["input"]), fonte)
 
     curados = dedupe(curate(anonimizados))
     train, val = split_train_val(curados)
+
+    # Atribui cada exemplo sobrevivente à sua fonte, para que `descartados`
+    # possa ser lido por fonte em vez de só no total — é o número que sustenta
+    # a afirmação sobre proporção de português na seção 3.1 do relatório.
+    curados_por_fonte = Counter(
+        origem.get((e["instruction"], e["input"]), "desconhecida") for e in curados
+    )
 
     write_jsonl(TRAIN_PATH, train)
     write_jsonl(VAL_PATH, val)
@@ -196,6 +216,7 @@ def prepare_dataset(
 
     stats = {
         "brutos_por_fonte": dict(brutos),
+        "curados_por_fonte": dict(curados_por_fonte),
         "total_bruto": sum(brutos.values()),
         "total_apos_curadoria_e_dedup": len(curados),
         "descartados": sum(brutos.values()) - len(curados),

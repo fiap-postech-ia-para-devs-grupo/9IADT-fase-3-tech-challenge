@@ -4,6 +4,11 @@
     "medquad": 300,
     "sintetico": 180
   },
+  "curados_por_fonte": {
+    "pubmedqa": 500,
+    "medquad": 286,
+    "sintetico": 180
+  },
   "total_bruto": 980,
   "total_apos_curadoria_e_dedup": 966,
   "descartados": 14,

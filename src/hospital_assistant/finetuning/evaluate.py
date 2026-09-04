@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, TypedDict
 
 from hospital_assistant.paths import EVAL_COMPARATIVO
@@ -130,18 +129,22 @@ def resumir(linhas: list[ComparisonRow]) -> dict[str, Any]:
 def evaluate() -> list[ComparisonRow]:
     """Carrega os dois modelos, roda o comparativo e grava o JSON de resultados."""
     from hospital_assistant.llm.model_loader import (
-        BASE_MODEL,
+        LOCAL_ADAPTER_DIR,
         MockLLM,
+        _adapter_disponivel,
         descrever_backend,
         load_llm,
     )
 
-    adapter = os.environ.get("HF_ADAPTER_REPO")
+    # Usa a mesma descoberta que `load_llm`, em vez de exigir só a variável de
+    # ambiente: treinar no Colab deixa o adapter em `outputs/adapter`, e a
+    # mensagem de erro abaixo sempre anunciou esse caminho como aceito.
+    adapter = _adapter_disponivel(LOCAL_ADAPTER_DIR)
     if not adapter:
         raise RuntimeError(
-            "Defina HF_ADAPTER_REPO com o repositório do adapter LoRA publicado "
-            "(ou o caminho local de outputs/adapter) antes de rodar a avaliação — "
-            "sem adapter não existe 'fine-tuned' para comparar."
+            "Nenhum adapter encontrado. Defina HF_ADAPTER_REPO com o repositório "
+            f"do adapter LoRA publicado, ou deixe o adapter treinado em "
+            f"{LOCAL_ADAPTER_DIR}/ — sem adapter não existe 'fine-tuned' para comparar."
         )
 
     finetuned = load_llm()
@@ -153,11 +156,15 @@ def evaluate() -> list[ComparisonRow]:
 
     base = _carregar_modelo_base()
 
-    logger.info("Base: %s | Fine-tuned: %s", BASE_MODEL, descrever_backend(finetuned))
+    logger.info("Base: %s | Fine-tuned: %s", base.modelo, descrever_backend(finetuned))
     linhas = comparar(base, finetuned)
 
     payload = {
-        "modelo_base": BASE_MODEL,
+        # O repositório *resolvido*, não a constante: com a licença da Meta
+        # pendente o comparativo roda contra o espelho, e registrar
+        # "meta-llama/..." faria o artefato de avaliação declarar um modelo
+        # que nunca foi carregado.
+        "modelo_base": base.modelo,
         "adapter": adapter,
         "resumo": resumir(linhas),
         "comparativo": linhas,

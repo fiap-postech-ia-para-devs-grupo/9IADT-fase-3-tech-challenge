@@ -22,22 +22,28 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 from pathlib import Path
 from typing import Any
 
 from hospital_assistant.finetuning.schema import InstructionExample
+from hospital_assistant.llm.model_loader import (
+    BASE_MODEL as BASE_MODEL_OFICIAL,
+)
+from hospital_assistant.llm.model_loader import (
+    BASE_MODEL_ESPELHO,
+    resolve_base_model,
+)
 from hospital_assistant.llm.prompt import build_training_messages
 from hospital_assistant.paths import FINETUNING_METRICS, PROCESSED_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
-# Repositório oficial da Meta: `gated: manual`, exige licença aprovada.
-BASE_MODEL_OFICIAL = "meta-llama/Llama-3.2-3B-Instruct"
-# Re-upload dos MESMOS pesos, sem gate. Fallback quando a licença ainda não
-# saiu — mantém a decisão de modelo base da ESTRATEGIA §1 intacta, muda só a
-# origem do download.
-BASE_MODEL_ESPELHO = "unsloth/Llama-3.2-3B-Instruct"
+# `resolve_base_model` e os dois repositórios vêm de `llm/model_loader.py`, não
+# são redefinidos aqui: treino e inferência **precisam** resolver para o mesmo
+# repositório. Duas cópias da regra permitiriam treinar sobre o espelho e
+# carregar contra o repo gated, que estoura `GatedRepoError` na primeira
+# pergunta da Tela 1.
+__all__ = ["BASE_MODEL_ESPELHO", "BASE_MODEL_OFICIAL", "resolve_base_model", "train"]
 
 ADAPTER_DIR = Path("outputs/adapter")
 MAX_SEQ_LENGTH = 1024
@@ -68,30 +74,6 @@ TRAINING_KWARGS: dict[str, Any] = {
     "save_total_limit": 2,
     "report_to": "none",
 }
-
-
-def resolve_base_model(token: str | None = None) -> str:
-    """Devolve o repositório do modelo base acessível com o token atual.
-
-    Tenta o repo oficial da Meta e cai para o espelho se o acesso ainda não
-    tiver sido aprovado — em vez de estourar `GatedRepoError` no meio de uma
-    sessão de Colab que custou minutos para subir.
-    """
-    from huggingface_hub import hf_hub_download
-
-    token = token or os.environ.get("HF_TOKEN")
-    try:
-        hf_hub_download(BASE_MODEL_OFICIAL, filename="config.json", token=token)
-        logger.info("Usando o repositório oficial: %s", BASE_MODEL_OFICIAL)
-        return BASE_MODEL_OFICIAL
-    except Exception as erro:  # noqa: BLE001 — qualquer falha de acesso cai no espelho
-        logger.warning(
-            "Sem acesso a %s (%s). Usando o espelho não-gated %s — mesmos pesos.",
-            BASE_MODEL_OFICIAL,
-            type(erro).__name__,
-            BASE_MODEL_ESPELHO,
-        )
-        return BASE_MODEL_ESPELHO
 
 
 def format_for_sft(example: InstructionExample, tokenizer: Any) -> str:
@@ -130,16 +112,37 @@ def extract_loss_curves(log_history: list[dict[str, Any]]) -> dict[str, Any]:
     return {"train": train, "eval": eval_, "final_eval_perplexity": perplexidade}
 
 
+def _kwarg_de_sequencia(sft_config: Any) -> dict[str, int]:
+    """Nome do parâmetro de comprimento máximo aceito por esta versão do `trl`.
+
+    O `trl` renomeou `SFTConfig.max_seq_length` para `max_length`. Como o
+    notebook instala sempre a versão mais recente (`pip install -U trl`), fixar
+    um dos dois nomes faria o `SFTTrainer` morrer com `TypeError` — depois de
+    ~3GB de instalação, do preparo do dataset e do download do modelo, numa
+    sessão de T4 que é cara em tempo. Descobrir pela assinatura evita apostar
+    numa versão.
+    """
+    import inspect
+
+    parametros = inspect.signature(sft_config.__init__).parameters
+    chave = "max_seq_length" if "max_seq_length" in parametros else "max_length"
+    return {chave: MAX_SEQ_LENGTH}
+
+
 def _carregar_splits() -> tuple[Any, Any]:
     from datasets import load_dataset
 
     train_path = PROCESSED_DATA_DIR / "train.jsonl"
     val_path = PROCESSED_DATA_DIR / "val.jsonl"
-    if not train_path.exists():
-        raise FileNotFoundError(
-            f"{train_path} não existe. Rode antes: "
-            "uv run python -m hospital_assistant.finetuning.data_prep"
-        )
+    # Os dois são checados: `eval_strategy="epoch"` exige o split de validação,
+    # e sem esta checagem a ausência dele apareceria como erro cru do
+    # `datasets` em vez da instrução de como resolver.
+    for caminho in (train_path, val_path):
+        if not caminho.exists() or caminho.stat().st_size == 0:
+            raise FileNotFoundError(
+                f"{caminho} não existe ou está vazio. Rode antes: "
+                "uv run python -m hospital_assistant.finetuning.data_prep"
+            )
 
     dados = load_dataset(
         "json",
@@ -188,13 +191,30 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
     )
     model.config.use_cache = False
 
-    def formatting_func(batch: dict[str, list[Any]]) -> list[str]:
-        return [
-            format_for_sft(
-                {"instruction": i, "input": c or "", "output": o},
+    def formatting_func(exemplos: dict[str, Any]) -> str | list[str]:
+        """Formata um lote ou um exemplo isolado.
+
+        Versões diferentes do `trl` chamam `formatting_func` de formas
+        diferentes: umas passam o batch inteiro (valores são listas), outras um
+        exemplo por vez (valores são strings). Assumir só o batch faz o treino
+        morrer com `TypeError` bem depois do download do modelo, dentro de uma
+        sessão de Colab — detectar pela forma do dado custa três linhas.
+        """
+        if isinstance(exemplos["instruction"], str):
+            return format_for_sft(
+                {
+                    "instruction": exemplos["instruction"],
+                    "input": exemplos.get("input") or "",
+                    "output": exemplos["output"],
+                },
                 tokenizer,
             )
-            for i, c, o in zip(batch["instruction"], batch["input"], batch["output"], strict=True)
+
+        return [
+            format_for_sft({"instruction": i, "input": c or "", "output": o}, tokenizer)
+            for i, c, o in zip(
+                exemplos["instruction"], exemplos["input"], exemplos["output"], strict=True
+            )
         ]
 
     trainer = SFTTrainer(
@@ -205,7 +225,7 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
         formatting_func=formatting_func,
         args=SFTConfig(
             output_dir=str(output_dir),
-            max_seq_length=MAX_SEQ_LENGTH,
+            **_kwarg_de_sequencia(SFTConfig),
             **TRAINING_KWARGS,
         ),
     )

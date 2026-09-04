@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from hospital_assistant.graph import nodes
 from hospital_assistant.graph.state import AssistantState
-from hospital_assistant.llm.model_loader import MockLLM, get_llm
+from hospital_assistant.llm.model_loader import MockLLM, get_llm, load_llm
 
 
 class LLMEspiao:
@@ -84,9 +84,17 @@ def test_get_llm_reaproveita_a_mesma_instancia() -> None:
     assert get_llm() is get_llm()
 
 
-def test_fluxo_real_leva_as_fontes_do_rag_ate_a_resposta(limpar_auditoria) -> None:
-    """Ponta a ponta com o MockLLM: o chunk recuperado aparece na sugestão final."""
+def test_fluxo_real_leva_as_fontes_do_rag_ate_a_resposta(limpar_auditoria, monkeypatch) -> None:
+    """Ponta a ponta com o MockLLM: o chunk recuperado aparece na sugestão final.
+
+    O backend é fixado explicitamente porque a asserção depende do MockLLM
+    ecoar as fontes. Sem isso, numa máquina com `HF_ADAPTER_REPO` definido (o
+    que o README manda fazer depois de publicar o adapter), o teste baixaria um
+    modelo de 3B e falharia na asserção.
+    """
     from hospital_assistant.graph.flow import run
+
+    monkeypatch.setattr(nodes, "get_llm", MockLLM)
 
     resultado = run("Qual a conduta inicial na sepse?")
 
@@ -95,11 +103,13 @@ def test_fluxo_real_leva_as_fontes_do_rag_ate_a_resposta(limpar_auditoria) -> No
     assert any(fonte in resultado["sugestao_llm"] for fonte in fontes)
 
 
-def test_mock_llm_continua_sendo_o_padrao_sem_adapter(monkeypatch) -> None:
-    """Enquanto o adapter não é publicado, o app tem que seguir demonstrável."""
+def test_sem_adapter_o_backend_e_o_mock(monkeypatch) -> None:
+    """Enquanto o adapter não é publicado, o app tem que seguir demonstrável.
+
+    Usa `load_llm(local_adapter_dir=None)` em vez de `get_llm()`: este último
+    procura em `outputs/adapter`, e numa máquina que já treinou o modelo o
+    teste tentaria instanciar o Llama de 3B de verdade.
+    """
     monkeypatch.delenv("HF_ADAPTER_REPO", raising=False)
-    get_llm.cache_clear()
 
-    assert isinstance(get_llm(), MockLLM)
-
-    get_llm.cache_clear()
+    assert isinstance(load_llm(local_adapter_dir=None), MockLLM)

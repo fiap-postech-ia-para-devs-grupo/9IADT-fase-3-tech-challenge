@@ -79,19 +79,33 @@ inteira composta de exemplos sintéticos — a loss de validação mediria uma
 fonte só. A semente fixa também é o que torna a comparação base vs.
 fine-tuned reproduzível.
 
-**Resultado.** Das 980 linhas brutas somadas das três fontes,
-966 sobreviveram à anonimização, à curadoria e à deduplicação
-(14 descartadas, 1.4%), divididas em **869 exemplos de
-treino** e **97 de validação**.
+**Resultado.** Das 980 linhas brutas somadas das três fontes, 966 sobreviveram
+à anonimização, à curadoria e à deduplicação (14 descartadas, 1,4%), divididas
+em **869 exemplos de treino** e **97 de validação**.
+
+| Fonte | Bruto | Após curadoria | Descartado |
+| --- | ---: | ---: | ---: |
+| PubMedQA | 500 | 500 | 0 |
+| MedQuAD | 300 | 286 | 14 |
+| Sintético | 180 | 180 | 0 |
+| **Total** | **980** | **966** | **14** |
+
+O descarte se concentra inteiramente no MedQuAD, e isso é coerente com a
+natureza da fonte: o dataset agrega perguntas de vários portais do NIH sobre os
+mesmos temas, e a deduplicação por pergunta + contexto remove as repetições —
+além das respostas curtas demais que sobram de documentos com conteúdo
+removido. PubMedQA e o corpus sintético passam íntegros: o primeiro é curado na
+origem por especialistas, o segundo já foi gerado sob as restrições de formato
+e tamanho que a curadoria verifica.
 
 Estatísticas completas em `results/dataset_stats.json`. Amostra de 30 exemplos
 já anonimizados versionada em `results/dataset_sample.jsonl` — `data/processed/`
 é artefato derivado e fica fora do Git, então é essa amostra que permite
 conferir a anonimização sem regenerar nada.
 
-**Limitação conhecida: desequilíbrio de idioma.** Apenas ~19% dos 869 exemplos
-de treino são em português — os 180 sintéticos e pouco mais. PubMedQA e
-MedQuAD, que respondem por 82% do volume, são em inglês, porque são as duas
+**Limitação conhecida: desequilíbrio de idioma.** Apenas 180 dos 966 exemplos
+curados são em português — **18,6%**, os do corpus sintético. PubMedQA e
+MedQuAD, que respondem pelos 81,4% restantes, são em inglês, porque são as duas
 fontes que o próprio PDF do Tech Challenge sugere e que a ESTRATEGIA §1 fixou.
 O assistente, no entanto, é inteiramente pt-BR: as telas, os guardrails, os
 protocolos indexados no RAG e as perguntas do vídeo de demonstração.
