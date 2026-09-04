@@ -211,20 +211,6 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
     )
     model.config.use_cache = False
 
-    # O espelho do Llama-3.2 vem armazenado em bfloat16, e o T4 é Turing — não
-    # tem bf16 nativo. Com `fp16=True`, o GradScaler tenta desescalar
-    # gradientes bf16 e estoura:
-    #     NotImplementedError: "_amp_foreach_non_finite_check_and_unscale_cuda"
-    #     not implemented for 'BFloat16'
-    # Forçar fp16 nos parâmetros não quantizados ANTES de o peft criar as
-    # camadas LoRA garante que o adapter nasça no mesmo dtype do autocast.
-    # Feito aqui, e não via `dtype=`/`torch_dtype=` no `from_pretrained`,
-    # porque o transformers 5 renomeou esse argumento e o repassa por
-    # `**kwargs` — um nome errado seria ignorado em silêncio e o erro voltaria
-    # só na primeira etapa de treino, depois de todo o setup.
-    for parametro in model.parameters():
-        if parametro.dtype == torch.bfloat16:
-            parametro.data = parametro.data.to(torch.float16)
 
     def formatting_func(exemplos: dict[str, Any]) -> str | list[str]:
         """Formata um lote ou um exemplo isolado.
@@ -263,6 +249,24 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
             **_sft_kwargs(SFTConfig),
         ),
     )
+
+    # O espelho do Llama-3.2 vem em bfloat16, e o peft cria as camadas LoRA no
+    # dtype do modelo base — então os parâmetros treináveis nascem bf16. Com
+    # `fp16=True` o GradScaler tenta desescalar gradiente bf16 e estoura:
+    #     NotImplementedError: "_amp_foreach_non_finite_check_and_unscale_cuda"
+    #     not implemented for 'BFloat16'
+    # O T4 é Turing e não tem bf16 nativo, então trocar o autocast para bf16
+    # custaria a aceleração de tensor core. A configuração padrão de AMP
+    # resolve sem esse custo: master weights em fp32, autocast em fp16.
+    #
+    # A conversão precisa ser aqui, e não sobre `model`: só depois do
+    # `SFTTrainer` é que as camadas LoRA existem.
+    convertidos = 0
+    for parametro in trainer.model.parameters():
+        if parametro.requires_grad and parametro.dtype != torch.float32:
+            parametro.data = parametro.data.to(torch.float32)
+            convertidos += 1
+    logger.info("Parâmetros treináveis convertidos para fp32: %d", convertidos)
 
     trainer.train(resume_from_checkpoint=resume_from_checkpoint or None)
 
