@@ -6,18 +6,28 @@ validação humana obrigatória e auditoria completa.
 
 O plano de entrega completo — arquitetura, decisões fechadas, especificação técnica de
 cada módulo e a divisão de trabalho entre o time — vive em
-[ESTRATEGIA.md](https://github.com/fiap-postech-ia-para-devs-grupo/exercicios/blob/main/src/fase-03/99-tech-challenge/ESTRATEGIA.md)
-(repo `exercicios`). O trabalho está quebrado em tickets rastreáveis a partir do
+[docs/ESTRATEGIA.md](docs/ESTRATEGIA.md). O trabalho está quebrado em tickets
+rastreáveis a partir do
 [issue de mapa](https://github.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge/issues/1)
 neste repositório — comece por lá.
 
+## Time
+
+| Integrante | Responsabilidade | Entregável |
+| --- | --- | --- |
+| **Marcelo Costa** | Fine-tuning da LLM | `src/hospital_assistant/finetuning/`, `src/hospital_assistant/llm/`, `notebooks/finetuning_colab.ipynb`, adapter LoRA no HF Hub |
+| **Vinicius Geizler** | LangChain / RAG / Dados | `src/hospital_assistant/rag/`, `src/hospital_assistant/db/`, vector store em `data/chroma/` |
+| **Antonio Bazo** | LangGraph e Segurança | `src/hospital_assistant/graph/`, `src/hospital_assistant/safety/` |
+| **Renato Mattos** | Interface Streamlit | `app.py` (3 telas) |
+| **Vinicius Blasque** | Relatório, testes e vídeo | `docs/relatorio_tecnico.md`, `tests/`, vídeo de demonstração |
+
 ## Estado atual
 
-Pipeline real de ponta a ponta: `db/`, `rag/` e `graph/`/`safety/` (Pessoas B e C) e as 3
-telas do Streamlit (Pessoa D) já rodam contra dados reais — SQLite, Chroma, o grafo
+Pipeline real de ponta a ponta: `db/`, `rag/` e `graph/`/`safety/` (Geizler e Antonio) e as 3
+telas do Streamlit (Renato) já rodam contra dados reais — SQLite, Chroma, o grafo
 LangGraph com guardrails, e a auditoria real em `clinical_audit.jsonl`.
 
-O bloco de fine-tuning (Pessoa A) está com **o código completo e o dataset gerado**:
+O bloco de fine-tuning (Marcelo) está com **o código completo e o dataset gerado**:
 `data/processed/{train,val}.jsonl` tem 869 exemplos de treino e 97 de validação, vindos
 de PubMedQA + MedQuAD + 180 protocolos sintéticos, anonimizados e curados
 (`results/dataset_stats.json`). Falta **executar o treino**, que roda no Google Colab
@@ -76,16 +86,16 @@ abrir, preenchendo `GIT_USER_NAME`/`GIT_USER_EMAIL`/`GITHUB_TOKEN`.
 
 ```
 src/hospital_assistant/
-├── finetuning/   # schema, anonymize, sources, synthetic, data_prep, train, evaluate — Pessoa A
-├── llm/          # prompt (template treino+inferência), model_loader (base + adapter) — Pessoa A
-├── rag/          # ingest, retriever (Chroma) — Pessoa B
-├── db/           # schema, seed, patient_tools (SQLite mock) — Pessoa B
-├── graph/        # state, nodes, flow (LangGraph) — Pessoa C
-└── safety/       # guardrails, audit_log — Pessoa C
-app.py            # Streamlit, 3 telas — Pessoa D
-notebooks/finetuning_colab.ipynb  # roda no Colab (GPU T4) — Pessoa A
-docs/relatorio_tecnico.md         # relatório técnico — Pessoa E
-tests/                            # Pessoa E (+ smoke tests da base)
+├── finetuning/   # schema, anonymize, sources, synthetic, data_prep, train, evaluate — Marcelo
+├── llm/          # prompt (template treino+inferência), model_loader (base + adapter) — Marcelo
+├── rag/          # ingest, retriever (Chroma) — Geizler
+├── db/           # schema, seed, patient_tools (SQLite mock) — Geizler
+├── graph/        # state, nodes, flow (LangGraph) — Antonio
+└── safety/       # guardrails, audit_log — Antonio
+app.py            # Streamlit, 3 telas — Renato
+notebooks/finetuning_colab.ipynb  # roda no Colab (GPU T4) — Marcelo
+docs/relatorio_tecnico.md         # relatório técnico — Blasque
+tests/                            # Blasque (+ testes de cada módulo por seu autor)
 ```
 
 Fine-tuning real (QLoRA) roda no Google Colab, não no devcontainer — o extra
@@ -123,4 +133,4 @@ echo "HF_ADAPTER_REPO=seu-usuario/hospital-assistant-llama32-3b-lora" >> .env
 
 ## Vídeo
 
-_(link a adicionar por Pessoa E ao final da Fase 3)_
+_(link a adicionar por Vinicius Blasque ao final da Fase 3)_

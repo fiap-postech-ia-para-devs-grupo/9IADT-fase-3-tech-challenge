@@ -1,16 +1,25 @@
 # Relatório Técnico — Tech Challenge Fase 3
 
-> Esqueleto per ESTRATEGIA.md §11. Seção 4.1 preenchida por Pessoa B (RAG/Dados,
-> issue #9) — as demais seções são responsabilidade de quem executa o bloco
-> correspondente e ficam como placeholder até lá.
+**Assistente Virtual Médico** — pós-graduação 9IADT, Fase 3.
+
+| Integrante | Responsabilidade | Seções deste relatório |
+| --- | --- | --- |
+| Marcelo Costa | Fine-tuning da LLM | 3.1, 3.2, 3.3 |
+| Vinicius Geizler | LangChain / RAG / Dados | 4.1 |
+| Antonio Bazo | LangGraph e Segurança | 4.2, 4.3, 4.5 |
+| Renato Mattos | Interface Streamlit | 4.4, 5 |
+| Vinicius Blasque | Relatório, testes e vídeo | 1, 2, 6, 7 |
+
+> Estrutura per ESTRATEGIA.md §11. Cada seção é escrita por quem executou o bloco
+> correspondente; as ainda não preenchidas aparecem marcadas como pendentes.
 
 ## 1. Contexto e Motivação
 
-_(pendente — Pessoa E, #18)_
+_(pendente — Vinicius Blasque, #18)_
 
 ## 2. Arquitetura da Solução (diagrama)
 
-_(pendente — Pessoa E, #18)_
+_(pendente — Vinicius Blasque, #18)_
 
 ## 3. Fine-tuning da LLM
 
@@ -255,30 +264,30 @@ escopo (ESTRATEGIA.md §1, "Decisões Fechadas — não reabrir").
 
 ### 4.2 Diagrama do fluxo LangGraph
 
-_(pendente — Pessoa C)_
+_(pendente — Antonio Bazo)_
 
 ### 4.3 Segurança e limites de atuação (guardrails)
 
-_(pendente — Pessoa C)_
+_(pendente — Antonio Bazo)_
 
 ### 4.4 Explainability (fontes das respostas)
 
-_(pendente — Pessoa C / Pessoa D — cobre a exibição na Tela 2 do que a seção
-4.1 acima descreve como retorno do retriever)_
+_(pendente — Antonio Bazo / Renato Mattos — cobre a exibição na Tela 2 do que a
+seção 4.1 acima descreve como retorno do retriever)_
 
 ### 4.5 Logging e auditoria
 
-_(pendente — Pessoa C)_
+_(pendente — Antonio Bazo)_
 
 ## 5. Interface Streamlit
 
-_(pendente — Pessoa D)_
+_(pendente — Renato Mattos)_
 
 ## 6. Desafios e Soluções
 
-_(pendente — consolidação final, Pessoa E; a limitação de retrieval em
+_(pendente — consolidação final, Vinicius Blasque; a limitação de retrieval em
 português descrita na seção 4.1 é candidata a entrar aqui)_
 
 ## 7. Conclusão e Próximos Passos
 
-_(pendente — Pessoa E)_
+_(pendente — Vinicius Blasque)_
