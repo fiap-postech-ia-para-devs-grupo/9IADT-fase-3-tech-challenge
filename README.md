@@ -27,16 +27,24 @@ Pipeline real de ponta a ponta: `db/`, `rag/` e `graph/`/`safety/` (Geizler e An
 telas do Streamlit (Renato) já rodam contra dados reais — SQLite, Chroma, o grafo
 LangGraph com guardrails, e a auditoria real em `clinical_audit.jsonl`.
 
-O bloco de fine-tuning (Marcelo) está com **o código completo e o dataset gerado**:
-`data/processed/{train,val}.jsonl` tem 869 exemplos de treino e 97 de validação, vindos
-de PubMedQA + MedQuAD + 180 protocolos sintéticos, anonimizados e curados
-(`results/dataset_stats.json`). Falta **executar o treino**, que roda no Google Colab
-com GPU T4 — veja [notebooks/finetuning_colab.ipynb](notebooks/finetuning_colab.ipynb).
+O bloco de fine-tuning (Marcelo) está **executado de ponta a ponta**. O dataset tem 869
+exemplos de treino e 97 de validação (PubMedQA + MedQuAD + 180 protocolos sintéticos,
+anonimizados e curados — `results/dataset_stats.json`). O treino QLoRA rodou numa GPU T4
+por 51 minutos, com loss de validação caindo 1.2504 → 1.2008 e perplexidade final 3.32
+(`results/finetuning_metrics.json`). O adapter LoRA está publicado em
+[`agendesse/hospital-assistant-llama32-3b-lora`](https://huggingface.co/agendesse/hospital-assistant-llama32-3b-lora).
 
-Até o adapter LoRA ser publicado, `llm/model_loader.py` cai no `MockLLM` (stand-in
-determinístico) e o registra no log — a Tela 1 continua funcionando ponta a ponta, mas
-a sugestão não vem do modelo fine-tunado. Depois de publicar o adapter, basta definir
-`HF_ADAPTER_REPO` no `.env` e o app passa a usá-lo sem mais nenhuma mudança de código.
+> ⚠️ **O comparativo base vs. fine-tuned revelou uma regressão de segurança.** O modelo
+> fine-tunado ficou 60% mais conciso, mas passou a responder com dose e posologia a
+> perguntas que o modelo base corretamente recusava. A causa está no corpus sintético
+> (categorias de receita e interpretação de exames), não no treino. O guardrail e a fila
+> de validação humana retêm essas respostas — mas o adapter **não deve ser promovido a
+> padrão do app sem revisar o corpus**. Detalhes e mitigações na seção 3.3 do
+> [relatório técnico](docs/relatorio_tecnico.md).
+
+Sem `HF_ADAPTER_REPO` no `.env`, `llm/model_loader.py` cai no `MockLLM` (stand-in
+determinístico) e registra isso no log — a Tela 1 continua funcionando ponta a ponta.
+Definir a variável faz o app usar o adapter, sem nenhuma mudança de código.
 
 Veja os tickets no GitHub Issues para o estado de cada bloco.
 
