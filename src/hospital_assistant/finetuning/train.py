@@ -211,6 +211,21 @@ def train(output_dir: Path = ADAPTER_DIR, resume_from_checkpoint: bool = False) 
     )
     model.config.use_cache = False
 
+    # O espelho do Llama-3.2 vem armazenado em bfloat16, e o T4 é Turing — não
+    # tem bf16 nativo. Com `fp16=True`, o GradScaler tenta desescalar
+    # gradientes bf16 e estoura:
+    #     NotImplementedError: "_amp_foreach_non_finite_check_and_unscale_cuda"
+    #     not implemented for 'BFloat16'
+    # Forçar fp16 nos parâmetros não quantizados ANTES de o peft criar as
+    # camadas LoRA garante que o adapter nasça no mesmo dtype do autocast.
+    # Feito aqui, e não via `dtype=`/`torch_dtype=` no `from_pretrained`,
+    # porque o transformers 5 renomeou esse argumento e o repassa por
+    # `**kwargs` — um nome errado seria ignorado em silêncio e o erro voltaria
+    # só na primeira etapa de treino, depois de todo o setup.
+    for parametro in model.parameters():
+        if parametro.dtype == torch.bfloat16:
+            parametro.data = parametro.data.to(torch.float16)
+
     def formatting_func(exemplos: dict[str, Any]) -> str | list[str]:
         """Formata um lote ou um exemplo isolado.
 
