@@ -1,0 +1,19 @@
+{
+  "brutos_por_fonte": {
+    "pubmedqa": 500,
+    "medquad": 300,
+    "sintetico": 180
+  },
+  "total_bruto": 980,
+  "total_apos_curadoria_e_dedup": 966,
+  "descartados": 14,
+  "train": 869,
+  "val": 97,
+  "parametros": {
+    "min_instruction_chars": 10,
+    "min_output_chars": 40,
+    "max_output_chars": 3000,
+    "val_ratio": 0.1,
+    "seed": 42
+  }
+}
