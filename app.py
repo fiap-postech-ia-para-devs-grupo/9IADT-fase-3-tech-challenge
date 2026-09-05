@@ -377,24 +377,42 @@ def modulo_assistente() -> None:
 def _assistente_conteudo() -> None:
     historico: list[dict[str, Any]] = st.session_state.setdefault("conversa", [])
 
+    # Com resposta na tela, o composer some. Ele convidava a emendar outra
+    # pergunta na mesma conversa, mas cada consulta é um registro próprio na
+    # auditoria e vira um laudo próprio — não há continuidade de diálogo a
+    # preservar, e a caixa vazia embaixo da resposta sugeria que havia.
+    if historico:
+        _render_conversa(historico)
+
+        acoes = st.columns([1, 3])
+        if acoes[0].button(
+            "Nova consulta", key="limpar_conversa", type="primary", use_container_width=True
+        ):
+            st.session_state["conversa"] = []
+            st.session_state["rascunho_pergunta"] = ""
+            st.rerun()
+        acoes[1].caption(
+            "Esta resposta está na fila de validação. Uma nova consulta começa outro "
+            "registro, com seu próprio laudo."
+        )
+        return
+
+    st.markdown(
+        '<div class="saudacao"><h2>Como posso ajudar no atendimento?</h2>'
+        "<p>Pergunte sobre conduta clínica, protocolo institucional ou exames. "
+        "Toda resposta passa por revisão médica antes de valer como conduta.</p></div>",
+        unsafe_allow_html=True,
+    )
+
     pacientes = list_patients()
     por_rotulo = {SEM_PACIENTE: None} | {
         f"{p['nome']} ({p['prontuario']})": p["id"] for p in pacientes
     }
-    if historico:
-        _render_conversa(historico)
-    else:
-        st.markdown(
-            '<div class="saudacao"><h2>Como posso ajudar no atendimento?</h2>'
-            "<p>Pergunte sobre conduta clínica, protocolo institucional ou exames. "
-            "Toda resposta passa por revisão médica antes de valer como conduta.</p></div>",
-            unsafe_allow_html=True,
-        )
 
     # Sem `st.form`: o seletor de paciente vive dentro do composer e precisa
-    # atualizar o cabeçalho clínico assim que muda. Num form nada é reavaliado
-    # até o envio, e o médico escolheria o paciente sem ver os exames pendentes.
-    # A limpeza do campo, que o form daria de graça, vem do `ciclo` na key.
+    # atualizar o contexto assim que muda. Num form nada é reavaliado até o
+    # envio. A limpeza do campo, que o form daria de graça, vem do `ciclo` na
+    # key.
     ciclo = st.session_state.setdefault("ciclo_composer", 0)
     pergunta = st.text_area(
         "Pergunta",
@@ -406,8 +424,7 @@ def _assistente_conteudo() -> None:
         key=f"pergunta_{ciclo}",
     )
 
-    if not historico:
-        _chips_sugestao()
+    _chips_sugestao()
 
     contexto = st.columns(2)
     with contexto[0]:
@@ -437,11 +454,6 @@ def _assistente_conteudo() -> None:
         st.session_state["rascunho_pergunta"] = ""
         st.session_state["ciclo_composer"] = ciclo + 1
         st.rerun()
-
-    if historico and st.button("Nova conversa", key="limpar_conversa"):
-        st.session_state["conversa"] = []
-        st.rerun()
-
 
 
 # ---------------------------------------------------------------------------
@@ -1132,6 +1144,10 @@ def _lista_laudos() -> None:
         return
 
     pacientes = {p["id"]: p for p in list_patients()}
+
+    # Mais recentes primeiro: quem abre a tela quer o que acabou de fazer ou o
+    # que está em aberto, não o primeiro laudo do mês.
+    com_laudo.sort(key=lambda linha: linha["timestamp_aprovacao"] or "", reverse=True)
 
     # Cada laudo ocupa uma linha alta, com botões e expander. Passando de três a
     # tela vira rolagem longa e o botão de emitir sai de vista.
