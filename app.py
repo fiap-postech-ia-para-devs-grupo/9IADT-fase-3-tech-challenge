@@ -52,7 +52,7 @@ from hospital_assistant.safety.audit_log import (
     real_audit_rows,
 )
 from hospital_assistant.ui import componentes as ui
-from hospital_assistant.ui import rotulos, tema
+from hospital_assistant.ui import conhecimento_store, decisoes_store, rotulos, tema
 
 st.set_page_config(page_title="Portal Clínico · Assistente Médico", layout="wide")
 
@@ -88,14 +88,18 @@ PAGINA_PADRAO = "assistente"
 # ---------------------------------------------------------------------------
 
 
-def _decisoes() -> dict[int, dict[str, Any]]:
-    """Decisões de validação tomadas nesta sessão, indexadas pelo id do registro.
+def _decisoes() -> dict[int, Any]:
+    """Decisões de validação já tomadas, indexadas pelo id do registro.
+
+    Vêm do disco, e não de `session_state`: a revisão de um médico é o registro
+    que dá validade clínica à resposta, e precisa sobreviver a um recarregamento
+    da página, a outra aba e à próxima sessão.
 
     Mantidas à parte das linhas de auditoria — e não sobre uma cópia congelada
     delas — para que a lista possa ser relida do disco a cada renderização sem
     perder o que o médico já decidiu.
     """
-    return st.session_state.setdefault("decisoes", {})
+    return decisoes_store.carregar()
 
 
 def carregar_registros() -> list[AuditRow]:
@@ -136,17 +140,20 @@ def registrar_decisao(
     aprovador: str | None,
     resposta_editada: str | None = None,
 ) -> None:
-    """Grava a decisão na sessão, reaproveitando a regra de `apply_decision`."""
+    """Persiste a decisão, reaproveitando a regra de `apply_decision`."""
     atualizadas = apply_decision(
         [linha], linha["id"], decisao, aprovador, resposta_editada=resposta_editada
     )
     atualizada = atualizadas[0]
-    _decisoes()[linha["id"]] = {
-        "status": atualizada["status"],
-        "aprovador": atualizada["aprovador"],
-        "timestamp_aprovacao": atualizada["timestamp_aprovacao"],
-        "resposta_llm": resposta_editada,
-    }
+    decisoes_store.registrar(
+        linha["id"],
+        {
+            "status": atualizada["status"],
+            "aprovador": atualizada["aprovador"],
+            "timestamp_aprovacao": atualizada["timestamp_aprovacao"],
+            "resposta_llm": resposta_editada,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +173,10 @@ def sugestoes(semente: int) -> list[dict[str, Any]]:
     e faz a base crescer junto com o assistente — acrescentar um protocolo
     passa a alimentar as duas telas de uma vez.
 
-    Só entram categorias clínicas: a base também explica o funcionamento do
-    assistente, e essas entradas pertencem à tela de conhecimento, não ao
-    composer de quem está atendendo.
-
     O sorteio usa semente explícita para que a lista só mude quando o usuário
     pedir, e não a cada rerun do Streamlit.
     """
-    itens = [item for item in rotulos.FAQ if item["categoria"] in rotulos.CATEGORIAS_CLINICAS]
+    itens = list(rotulos.FAQ)
     random.Random(semente).shuffle(itens)
     return itens[:SUGESTOES_POR_VEZ]
 
@@ -209,9 +212,31 @@ def _cabecalho_paciente(paciente: dict[str, Any]) -> None:
 
 
 def _enviar(pergunta: str, paciente_id: str | None) -> None:
-    """Roda o grafo e acrescenta o turno ao histórico da conversa."""
+    """Responde a pergunta e acrescenta o turno ao histórico da conversa.
+
+    Antes de acionar o modelo, procura na base de conhecimento uma pergunta
+    semelhante **já aprovada por um médico** para o mesmo paciente. O ganho é
+    grande — dezenas de segundos viram milissegundos numa GPU, minutos viram
+    milissegundos em CPU — e a resposta reaproveitada é a revisada, não a que o
+    modelo produziu, porque o médico pode tê-la editado antes de aprovar.
+    """
     historico: list[dict[str, Any]] = st.session_state.setdefault("conversa", [])
     historico.append({"papel": "user", "texto": pergunta, "fontes": []})
+
+    conhecida = conhecimento_store.buscar_similar(pergunta, paciente_id)
+    if conhecida is not None:
+        historico.append(
+            {
+                "papel": "assistant",
+                "texto": (
+                    conhecida["resposta"]
+                    + "\n\n> Resposta recuperada da base de conhecimento: já foi produzida "
+                    "para uma pergunta equivalente e validada por um médico responsável."
+                ),
+                "fontes": [],
+            }
+        )
+        return
 
     with st.spinner("Consultando protocolos e prontuário…"):
         resultado = run(pergunta, paciente_id)
@@ -223,6 +248,15 @@ def _enviar(pergunta: str, paciente_id: str | None) -> None:
     historico.append(
         {"papel": "assistant", "texto": texto, "fontes": resultado.get("contexto_rag", [])}
     )
+
+    # O id vem da trilha recém-gravada pelo grafo: é ele que liga a entrada da
+    # base à decisão do médico, e sem essa ligação não haveria como saber se a
+    # resposta pode ser reaproveitada.
+    registros = real_audit_rows()
+    if registros:
+        conhecimento_store.registrar(
+            registros[-1]["id"], pergunta, resultado["sugestao_llm"], paciente_id
+        )
 
 
 def _render_conversa(historico: list[dict[str, Any]]) -> None:
@@ -747,7 +781,11 @@ def main() -> None:
     # assistente responderia com o stand-in e as telas de fila e auditoria
     # arquivariam essas respostas como se fossem do modelo treinado.
     try:
-        get_llm()
+        # O spinner não é enfeite: a primeira carga baixa os pesos e monta o
+        # modelo na GPU, e sem ele a tela fica em branco por minutos sem dizer
+        # se está trabalhando ou travada.
+        with st.spinner("Carregando o modelo clínico… a primeira vez leva alguns minutos."):
+            get_llm()
     except AmbienteSemModelo as erro:
         st.error(str(erro), icon="⛔")
         st.caption(

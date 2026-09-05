@@ -40,6 +40,9 @@ venv/
 # Project-specific mock/derived data — regenerate via seed_mock_data.py / ingest.py
 data/patients_mock.db
 data/audit.db
+# Estado de execucao: decisoes de validacao e base que cresce com os atendimentos.
+data/decisoes_validacao.json
+data/base_conhecimento.json
 clinical_audit.log
 clinical_audit.jsonl
 dataprep.log

@@ -181,10 +181,20 @@ def test_faq_tem_todas_as_categorias_declaradas() -> None:
 
 
 def test_faq_filtra_por_categoria() -> None:
-    itens = rotulos.filtrar_faq(categoria="seguranca")
+    itens = rotulos.filtrar_faq(categoria="protocolo")
 
     assert itens
-    assert all(item["categoria"] == "seguranca" for item in itens)
+    assert all(item["categoria"] == "protocolo" for item in itens)
+
+
+def test_faq_e_so_conteudo_clinico() -> None:
+    """A base descrevia o próprio sistema — "por que a resposta não veio do
+    modelo treinado" não é conhecimento clínico, e ocupava espaço numa tela que
+    o médico consulta durante o atendimento."""
+    texto = " ".join(item["pergunta"] + item["resposta"] for item in rotulos.FAQ).lower()
+
+    for termo in ("modelo treinado", "fine-tun", "mock", "placa de vídeo"):
+        assert termo not in texto
 
 
 def test_faq_busca_no_texto_da_resposta() -> None:

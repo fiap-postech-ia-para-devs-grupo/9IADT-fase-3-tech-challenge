@@ -17,6 +17,7 @@ from hospital_assistant.db.seed_mock_data import seed
 from hospital_assistant.paths import CHROMA_DIR, PATIENTS_DB
 from hospital_assistant.rag.ingest import ingest
 from hospital_assistant.safety.audit_log import ClinicalAuditLogger
+from hospital_assistant.ui import conhecimento_store, decisoes_store
 
 
 def _chroma_populated() -> bool:
@@ -57,3 +58,11 @@ def limpar_auditoria() -> None:
     caminho = ClinicalAuditLogger.LOG_ESTRUTURADO_PATH
     if os.path.exists(caminho):
         os.remove(caminho)
+
+    # As decisões de validação agora vivem em disco, e são indexadas pelo id da
+    # linha de auditoria. Zerar a trilha sem zerar as decisões faria um teste
+    # herdar a aprovação de outro, já que os ids recomeçam do 1.
+    decisoes_store.limpar()
+    # A base de conhecimento indexa pelo mesmo id: sem zerá-la, uma resposta
+    # aprovada num teste viraria cache para a pergunta de outro.
+    conhecimento_store.limpar()

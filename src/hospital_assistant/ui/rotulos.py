@@ -81,16 +81,7 @@ CATEGORIAS: dict[str, str] = {
     "protocolo": "Protocolo clínico",
     "exames": "Exames",
     "medicacao": "Medicação",
-    "fluxo": "Fluxo do sistema",
-    "seguranca": "Segurança",
 }
-
-# Categorias que valem como atalho de pergunta no assistente. As demais
-# (`fluxo`, `seguranca`, `medicacao`) documentam o comportamento do próprio
-# sistema — "por que a resposta não veio do modelo treinado" é informação útil
-# na base de conhecimento, mas oferecê-la ao médico como sugestão de pergunta
-# clínica desvia o composer da função dele.
-CATEGORIAS_CLINICAS: tuple[str, ...] = ("protocolo", "exames")
 
 FAQ: list[PerguntaFrequente] = [
     {
@@ -145,60 +136,6 @@ FAQ: list[PerguntaFrequente] = [
         ),
         "categoria": "exames",
         "fonte": "FAQ interno — Solicitação de exames urgentes",
-    },
-    {
-        "pergunta": "O assistente pode prescrever medicamento ou definir dosagem?",
-        "resposta": (
-            "Não. Ele sugere e apoia a decisão clínica, mas nunca prescreve de forma autônoma. "
-            "Toda resposta que mencione medicamento ou dosagem recebe sinalização automática de "
-            "segurança e fica retida na fila de validação até que um médico aprove, rejeite ou "
-            "edite o texto."
-        ),
-        "categoria": "seguranca",
-        "fonte": "Política de segurança do assistente",
-    },
-    {
-        "pergunta": "O que acontece quando o assistente detecta sinal de emergência?",
-        "resposta": (
-            "O caso é sinalizado como emergência clínica, um alerta é emitido para a equipe "
-            "médica e a resposta orienta atendimento presencial imediato. O evento fica "
-            "registrado na auditoria com a sinalização correspondente."
-        ),
-        "categoria": "seguranca",
-        "fonte": "Fluxo de atendimento automatizado",
-    },
-    {
-        "pergunta": "Como o assistente indica de onde veio a informação?",
-        "resposta": (
-            "Cada resposta carrega os trechos de protocolo que a fundamentaram, com a origem de "
-            "cada um e o grau de similaridade com a pergunta. Esses dados aparecem na fila de "
-            "validação e ficam gravados na auditoria, de modo que sempre é possível reconstruir "
-            "em que o assistente se baseou."
-        ),
-        "categoria": "fluxo",
-        "fonte": "Política de explicabilidade das respostas",
-    },
-    {
-        "pergunta": "Por que a resposta às vezes indica que não veio do modelo treinado?",
-        "resposta": (
-            "O modelo ajustado exige placa de vídeo dedicada. Quando o ambiente não a possui, o "
-            "sistema opera com um gerador de demonstração e informa isso na barra lateral e na "
-            "própria resposta. O fluxo, as fontes consultadas e o encaminhamento para validação "
-            "continuam reais — apenas o texto da sugestão não vem do modelo treinado."
-        ),
-        "categoria": "fluxo",
-        "fonte": "Nota técnica — Modelo em uso",
-    },
-    {
-        "pergunta": "O modelo fine-tunado já pode ser o padrão do assistente?",
-        "resposta": (
-            "Ainda não. O comparativo base vs. fine-tuned mostrou regressão de segurança: o "
-            "modelo ajustado passou a responder com dose e posologia a perguntas que o modelo "
-            "original recusava. A base de treinamento precisa ser revisada antes. Os detalhes "
-            "estão no relatório técnico do projeto."
-        ),
-        "categoria": "medicacao",
-        "fonte": "Relatório técnico — Avaliação do modelo",
     },
 ]
 
