@@ -40,11 +40,16 @@ fi
 cd "${DESTINO}"
 
 echo "==> 2/5  Dependências"
-# Runtime do app + extras de GPU. O Colab já traz torch e transformers; o
-# `-q` mantém a saída legível, e o pip resolve o que já estiver presente.
-pip install -q -U streamlit langgraph langchain langchain-community langchain-text-splitters \
-  chromadb sentence-transformers pandas python-dotenv >/dev/null
-pip install -q -U peft bitsandbytes accelerate >/dev/null
+# Runtime do app + extras de GPU. O Colab já traz torch, transformers e pandas.
+#
+# **Sem `-U`**: o upgrade em massa subia o pandas para a última versão e quebrava
+# o pacote `google-colab`, que fixa `pandas==2.2.3` — e é ele que fornece o
+# `proxyPort`, única forma de abrir o portal de fora da máquina virtual. O
+# upgrade derrubava a porta de entrada da aplicação para atualizar bibliotecas
+# que já estavam em versão suficiente. `pandas` sai da lista pelo mesmo motivo.
+pip install -q streamlit langgraph langchain langchain-community langchain-text-splitters \
+  chromadb sentence-transformers python-dotenv >/dev/null
+pip install -q peft bitsandbytes accelerate >/dev/null
 
 echo "==> 3/5  Dados (SQLite de pacientes e índice vetorial)"
 export PYTHONPATH="${DESTINO}/src"
