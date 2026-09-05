@@ -186,3 +186,12 @@ def test_descrever_backend_distingue_cpu_de_gpu() -> None:
 
     assert "CPU" in em_cpu
     assert "4-bit" in em_gpu
+
+
+def test_sem_gpu_nao_tenta_fp16(monkeypatch) -> None:
+    """A escolha fp16 vs 4-bit é por memória livre e só faz sentido com CUDA."""
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    assert model_loader._cabe_em_fp16() is False

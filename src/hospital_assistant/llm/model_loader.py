@@ -2,8 +2,9 @@
 
 Dois backends implementam a mesma interface `LLM`:
 
-- `FineTunedLLM`: Llama-3.2-3B-Instruct quantizado em 4-bit + o adapter LoRA
-  publicado no Hugging Face Hub (ou um diretório local, logo após o treino).
+- `FineTunedLLM`: Llama-3.2-3B-Instruct + o adapter LoRA publicado no Hugging
+  Face Hub (ou um diretório local, logo após o treino). Carrega em fp16 quando
+  a GPU comporta e cai para 4-bit só quando a memória aperta.
 - `MockLLM`: stand-in determinístico, usado quando não há adapter disponível
   ou quando as dependências de GPU não estão instaladas — o caso do
   devcontainer, do Docker e do `pytest`.
@@ -87,6 +88,29 @@ def _carregar_env() -> None:
     load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
+# Pesos em fp16 (~6,4 GB) mais folga para o cache de atenção. Numa T4 de 15 GB
+# sobra espaço; placas menores caem na quantização, que é o que a torna viável.
+VRAM_MINIMA_FP16_GB = 9.0
+
+
+def _cabe_em_fp16() -> bool:
+    """Se a GPU comporta o modelo sem quantizar.
+
+    Consulta a memória **livre**, não a total: o processo divide a placa com o
+    modelo de embeddings do RAG e com o que mais estiver carregado na sessão.
+    """
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return False
+        livre, _total = torch.cuda.mem_get_info()
+    except Exception:  # noqa: BLE001 — sem GPU utilizável, a resposta é a mesma
+        return False
+
+    return livre / 2**30 >= VRAM_MINIMA_FP16_GB
+
+
 @runtime_checkable
 class LLM(Protocol):
     def generate(
@@ -167,14 +191,18 @@ class MockLLM:
 class FineTunedLLM:
     """Modelo base + adapter LoRA, carregados uma única vez (lazy).
 
-    Dois modos, mesmo adapter e mesma saída:
+    Três modos, mesmo adapter e mesma saída:
 
-    - **GPU**: base quantizada em 4-bit (NF4) pelo bitsandbytes. É o modo em que
-      o modelo foi treinado e avaliado, e responde em segundos.
-    - **CPU**: base em bfloat16, sem quantização. O bitsandbytes não quantiza
-      sem CUDA, então aqui os pesos entram inteiros na RAM — ~6,4 GB — e a
-      geração cai para minutos por resposta. Serve para ter resposta real onde
-      não há placa de vídeo, não para uso interativo.
+    - **GPU com folga** (padrão numa T4): fp16 sem quantização. É o mais rápido.
+    - **GPU apertada**: 4-bit NF4 pelo bitsandbytes, que troca velocidade por
+      memória. Foi o modo do treino, onde a memória era o gargalo.
+    - **CPU**: bfloat16, sem quantização, porque o bitsandbytes exige CUDA. Os
+      pesos entram inteiros na RAM (~6,4 GB) e a geração cai para minutos por
+      resposta. Serve para ter resposta real onde não há placa, não para uso
+      interativo.
+
+    A escolha entre os dois primeiros é por memória livre, não por preferência:
+    quantizar sem precisar só deixa a resposta lenta.
     """
 
     adapter: str
@@ -213,9 +241,21 @@ class FineTunedLLM:
             modelo_base = AutoModelForCausalLM.from_pretrained(
                 base, dtype=torch.bfloat16, device_map="cpu"
             )
+        elif _cabe_em_fp16():
+            # fp16 sem quantização **é mais rápido** que 4-bit, ao contrário do
+            # que a intuição sugere: a NF4 existe para o treino caber na
+            # memória (o "Q" de QLoRA), e paga desquantização a cada passo de
+            # geração. Na inferência isso é custo puro. O modelo em fp16 ocupa
+            # ~6,4 GB e sobra espaço numa T4 de 15 GB, então aqui a quantização
+            # só tornava a resposta lenta sem necessidade.
+            logger.info("VRAM suficiente: carregando em fp16 (mais rápido que 4-bit).")
+            modelo_base = AutoModelForCausalLM.from_pretrained(
+                base, dtype=torch.float16, device_map="auto"
+            )
         else:
             from transformers import BitsAndBytesConfig
 
+            logger.info("VRAM apertada: carregando em 4-bit NF4.")
             modelo_base = AutoModelForCausalLM.from_pretrained(
                 base,
                 quantization_config=BitsAndBytesConfig(

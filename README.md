@@ -55,10 +55,20 @@ Requer [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync
 cp .env.example .env  # preencher HF_TOKEN / GROQ_API_KEY / GOOGLE_API_KEY quando necessário
+./scripts/start.sh    # semeia o banco, indexa o RAG e sobe o portal
+```
+
+Ou passo a passo, se preferir:
+
+```bash
 uv run python -m hospital_assistant.db.seed_mock_data  # popula data/patients_mock.db
 uv run python -m hospital_assistant.rag.ingest          # popula data/chroma/
 uv run streamlit run app.py
 ```
+
+Para rodar com o **modelo treinado**, é preciso GPU — o caminho é o Google
+Colab. Isso, o motivo do endereço `*.prod.colab.dev` e os modos do modelo estão
+em **[docs/EXECUCAO.md](docs/EXECUCAO.md)**.
 
 `uv run pytest` faz esse seed/ingest sozinho na primeira vez que rodar (via
 `tests/conftest.py`), mas `app.py` não — sem os dois comandos acima, o assistente

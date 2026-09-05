@@ -22,6 +22,9 @@ BRANCH="${BRANCH:-main}"
 REPO="https://github.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge.git"
 DESTINO="/content/portal"
 PORTA="${PORTA:-8501}"
+# `/content` só existe no Colab; fora dele o log vai para o diretório do clone,
+# senão o redirecionamento falha e o servidor nem sobe.
+LOG="${LOG:-$([ -d /content ] && echo /content/portal.log || echo "${DESTINO}/portal.log")}"
 
 # Adapter treinado publicado no Hugging Face. Fica versionado aqui, e não como
 # variável que alguém precisa lembrar de exportar: esquecê-la fazia o portal
@@ -61,9 +64,10 @@ echo "==> 4/5  Modelo"
 echo "    adapter: ${HF_ADAPTER_REPO}"
 if ! python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"; then
   echo
-  echo "    AVISO: nenhuma GPU visível. O carregamento em 4-bit exige CUDA, então o" >&2
-  echo "    portal vai subir em modo de demonstração — as respostas NÃO virão do" >&2
-  echo "    modelo treinado. Troque o ambiente de execução para T4 e rode de novo." >&2
+  echo "    AVISO: nenhuma GPU visível. O portal vai RECUSAR abrir, porque o" >&2
+  echo "    adapter está configurado e produção é o padrão. Troque o ambiente de" >&2
+  echo "    execução para T4, ou defina PERMITIR_CPU=true (modelo real, minutos" >&2
+  echo "    por resposta) ou MODO_DEMONSTRACAO=true (interface sem o modelo)." >&2
   echo
 fi
 
@@ -84,24 +88,33 @@ nohup streamlit run app.py \
   --server.headless true \
   --server.enableCORS false \
   --server.enableXsrfProtection false \
-  > /content/portal.log 2>&1 &
+  > "${LOG}" 2>&1 &
 
 # Espera o healthcheck em vez de dormir um tempo fixo: o primeiro start baixa o
 # modelo de embeddings e a duração varia bastante entre sessões.
 for _ in $(seq 1 60); do
   if curl -s -o /dev/null "http://localhost:${PORTA}/_stcore/health"; then
     echo
-    echo "Portal no ar em http://localhost:${PORTA}"
-    echo "Log: /content/portal.log"
-    echo
-    echo "Para abrir de fora do Colab, exponha a porta numa célula:"
-    echo "    from google.colab.output import eval_js"
-    echo "    print(eval_js(f'google.colab.kernel.proxyPort(${PORTA})'))"
+    # `localhost` aqui é o da máquina virtual, não o do navegador de quem lê
+    # esta mensagem. Imprimir esse endereço no Colab manda a pessoa para um
+    # servidor na própria máquina dela — outro computador, outro conteúdo. Por
+    # isso cada ambiente recebe só o endereço que de fato funciona nele.
+    if [ -n "${COLAB_RELEASE_TAG:-}" ] || [ -d /content ]; then
+      echo "Portal no ar. Para abrir, rode numa célula do notebook:"
+      echo
+      echo "    from google.colab.output import eval_js"
+      echo "    print(eval_js('google.colab.kernel.proxyPort(${PORTA})'))"
+      echo
+      echo "O endereço impresso é o único que alcança esta VM de fora dela."
+    else
+      echo "Portal no ar em http://localhost:${PORTA}"
+    fi
+    echo "Log: ${LOG}"
     exit 0
   fi
   sleep 2
 done
 
 echo "Servidor não respondeu ao healthcheck. Últimas linhas do log:" >&2
-tail -n 30 /content/portal.log >&2
+tail -n 30 "${LOG}" >&2
 exit 1
