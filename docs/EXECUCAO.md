@@ -60,6 +60,31 @@ publicar aqui, buscar lá.
 O endereço muda a cada reciclagem da VM. É por isso que ele é impresso a cada
 atualização, em vez de anotado num lugar fixo.
 
+### Abrindo de fora do computador que roda o Colab
+
+A URL do `proxyPort` **não é compartilhável**: ela é amarrada à sessão
+autenticada do Colab naquele navegador. De outro dispositivo — um celular, ou a
+máquina de um colega — o proxy do Google responde `404` com corpo vazio, e
+alguns navegadores móveis oferecem download em vez de exibir a página em branco.
+
+Para um endereço que funciona em qualquer lugar:
+
+```python
+!curl -sL https://raw.githubusercontent.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge/main/scripts/colab_tunel.sh | bash
+```
+
+O script reinicia o portal com uma senha ativa, sobe um túnel do Cloudflare e
+imprime a URL pública junto da senha.
+
+**A URL alcança qualquer pessoa da internet.** A aplicação não tem autenticação
+— a seleção de médico identifica quem valida, não controla quem entra. Sem a
+senha, um desconhecido com o link poderia aprovar laudos e ler o prontuário; por
+isso o script recusa publicar sem uma, e gera se você não fornecer.
+
+A senha é única e compartilhada, comparada em memória: protege uma demonstração,
+não um sistema em produção. O túnel cai quando a célula para, o que é
+intencional — um túnel esquecido em background é o que não se quer aqui.
+
 ## Por que aquele endereço, e não `localhost`
 
 `localhost` significa "esta máquina", e muda de sentido conforme quem fala.

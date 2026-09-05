@@ -58,8 +58,8 @@ from hospital_assistant.safety.audit_log import (
     filter_audit_rows,
     real_audit_rows,
 )
-from hospital_assistant.ui import componentes as ui
 from hospital_assistant.ui import (
+    acesso,
     conhecimento_store,
     decisoes_store,
     laudo,
@@ -67,6 +67,7 @@ from hospital_assistant.ui import (
     rotulos,
     tema,
 )
+from hospital_assistant.ui import componentes as ui
 
 st.set_page_config(page_title="Portal Clínico · Assistente Médico", layout="wide")
 
@@ -1536,6 +1537,12 @@ def barra_lateral(pendencias: int) -> None:
 
 def main() -> None:
     st.markdown(tema.css(), unsafe_allow_html=True)
+
+    # Antes de qualquer tela e antes de carregar o modelo: num ambiente
+    # publicado, quem não passou daqui não deveria nem disparar o download de
+    # 6,4 GB de pesos.
+    if not acesso.liberado():
+        return
 
     # O modelo é resolvido antes de qualquer tela. Se o ambiente não puder
     # carregá-lo, a aplicação inteira recusa em vez de abrir parcialmente: o
