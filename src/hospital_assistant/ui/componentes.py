@@ -330,3 +330,28 @@ def badge_risco(risco: str | None, avaliado_em: str | None = None) -> str:
         f'<span class="badge" style="color:{cor};background:{fundo}">{html.escape(rotulo)}</span>'
         f'<span style="color:{tema.TEXTO_TENUE};font-size:.72rem">{html.escape(quando)}</span>'
     )
+
+
+def badge_alertas(alertas: list[dict[str, Any]]) -> str:
+    """Alertas abertos de um paciente, coloridos pela severidade mais grave.
+
+    A contagem sozinha não diferencia três alertas leves de um grave, e é o
+    grave que decide a ordem de atendimento. Sem alerta nenhum diz isso por
+    extenso: um zero ao lado de uma classificação de risco lê-se como dado
+    faltando, não como ausência de alerta.
+    """
+    if not alertas:
+        return f'<span style="color:{tema.TEXTO_TENUE};font-size:.8rem">Nenhum</span>'
+
+    ordem = {"alta": 0, "media": 1, "baixa": 2}
+    pior = min((a.get("severidade", "baixa") for a in alertas), key=lambda s: ordem.get(s, 3))
+    cor, fundo = {
+        "alta": (tema.ALERTA, tema.ALERTA_FUNDO),
+        "media": (tema.PENDENTE, tema.PENDENTE_FUNDO),
+    }.get(pior, (tema.NEUTRO, tema.NEUTRO_FUNDO))
+
+    rotulo = "1 alerta" if len(alertas) == 1 else f"{len(alertas)} alertas"
+    return (
+        f'<span class="badge" style="color:{cor};background:{fundo}">'
+        f"{html.escape(rotulo)} · {html.escape(pior)}</span>"
+    )

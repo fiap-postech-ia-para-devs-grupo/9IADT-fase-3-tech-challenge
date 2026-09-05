@@ -293,6 +293,29 @@ def css() -> str:
   /* Com paciente, solicitante e tipo de operação a auditoria passou a ter mais
      colunas do que cabe na tela. Sem a rolagem própria, a página inteira rola
      de lado e a barra lateral sai de vista. */
+  /* Spinner como overlay central. Inline, ele nasce onde o código chamou —
+     no fim da conversa, muitas vezes abaixo da dobra — e a tela parecia
+     travada durante os segundos de geração. Preso ao centro com um véu por
+     trás, fica claro que a aplicação está trabalhando e que o resto está
+     bloqueado. */
+  div[data-testid="stSpinner"] {{
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+    display: flex; align-items: center; justify-content: center; gap: .8rem;
+    background: {SUPERFICIE}e6;
+    backdrop-filter: blur(2px);
+  }}
+  div[data-testid="stSpinner"] > div {{
+    display: flex; align-items: center; gap: .8rem;
+    background: {SUPERFICIE};
+    border: 1px solid {BORDA};
+    border-radius: 12px;
+    padding: 1.1rem 1.6rem;
+    box-shadow: 0 8px 28px rgba(15, 107, 98, .16);
+    font-size: .95rem; color: {TEXTO};
+  }}
+
   div[data-testid="stDataFrame"] {{ border-radius: 6px; overflow-x: auto; }}
   .stButton > button {{ border-radius: 6px; font-weight: 500; }}
 

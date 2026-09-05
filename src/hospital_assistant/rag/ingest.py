@@ -24,7 +24,27 @@ CHUNK_OVERLAP = 100
 # all-MiniLM-L6-v2 é treinado para similaridade de cosseno sobre embeddings
 # normalizados — usar distância L2 sobre vetores não normalizados (o default
 # do Chroma) produz ranking pior e um "score" sem faixa de valores estável.
-EMBEDDING_KWARGS = {"encode_kwargs": {"normalize_embeddings": True}}
+def _device_dos_embeddings() -> str:
+    """Onde rodar o modelo de embeddings.
+
+    O sentence-transformers assume CPU quando ninguém diz o contrário, e o log
+    do Colab mostrava `No device provided, using cpu` com uma T4 ociosa ao lado
+    — custo pago em toda consulta do assistente, não só na indexação.
+
+    Os vetores não mudam com o device, então um índice construído na CPU
+    continua válido para uma consulta na GPU.
+    """
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+EMBEDDING_KWARGS = {
+    "model_kwargs": {"device": _device_dos_embeddings()},
+    "encode_kwargs": {"normalize_embeddings": True},
+}
 COLLECTION_METADATA = {"hnsw:space": "cosine"}
 
 # Boilerplate idêntico repetido em todo protocolo sintético (disclaimer

@@ -25,6 +25,7 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Protocol, runtime_checkable
 
 from hospital_assistant.llm.prompt import build_messages
@@ -41,7 +42,11 @@ BASE_MODEL_ESPELHO = "unsloth/Llama-3.2-3B-Instruct"
 # Diretório onde `finetuning/train.py` grava o adapter no Colab.
 LOCAL_ADAPTER_DIR = Path("outputs/adapter")
 
-MAX_NEW_TOKENS = 512
+# Teto de geração. As respostas do modelo ajustado têm ~560 caracteres, ou
+# aproximadamente 140 tokens (results/eval_comparativo.json), então este valor é
+# quase três vezes o necessário — existe para o caso de o modelo não emitir EOS
+# e ficar divagando, que é quando a espera vira minutos sem nada de útil.
+MAX_NEW_TOKENS = 400
 
 
 def resolve_base_model(token: str | None = None) -> str:
@@ -272,6 +277,16 @@ class FineTunedLLM:
         self._pipeline = (tokenizer, modelo)
         return self._pipeline
 
+    def aquecer(self) -> None:
+        """Carrega os pesos agora, em vez de na primeira pergunta.
+
+        `get_llm()` só decide qual backend usar; `_carregar` é preguiçoso. Sem
+        aquecer, o download e a montagem do modelo acontecem dentro da primeira
+        consulta — e o médico espera minutos achando que a pergunta dele é que
+        demora. Pago no start, com o carregamento visível na tela.
+        """
+        self._carregar()
+
     def generate(
         self,
         pergunta: str,
@@ -294,11 +309,24 @@ class FineTunedLLM:
             return_dict=True,
         ).to(modelo.device)
 
+        inicio = perf_counter()
         saida = modelo.generate(
             **entrada,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
+            use_cache=True,
             pad_token_id=tokenizer.pad_token_id,
+        )
+        gerados = int(saida.shape[-1] - entrada["input_ids"].shape[-1])
+        duracao = perf_counter() - inicio
+        # Medir em vez de supor: sem isto, "está lento" não distingue prompt
+        # longo de geração longa, e as duas pedem correções diferentes.
+        logger.info(
+            "Geração: %d tokens em %.1fs (%.1f tok/s), prompt de %d tokens",
+            gerados,
+            duracao,
+            gerados / duracao if duracao else 0.0,
+            int(entrada["input_ids"].shape[-1]),
         )
         # Só os tokens novos: o prompt inteiro volta concatenado na saída.
         n_prompt = entrada["input_ids"].shape[-1]

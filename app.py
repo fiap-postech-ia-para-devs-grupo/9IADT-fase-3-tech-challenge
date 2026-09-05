@@ -768,15 +768,34 @@ def _lista_pacientes() -> None:
 
     for paciente in itens:
         risco, avaliado_em = riscos[paciente["id"]]
+        # Alertas só da página visível: são uma consulta por paciente, e fazer
+        # isso para o cadastro inteiro custaria caro para exibir dez linhas.
+        abertos = [
+            alerta
+            for alerta in get_patient_history(paciente["id"])["alertas"]
+            if not alerta["resolvido"]
+        ]
+
         with st.container(border=True):
-            colunas = st.columns([3, 2, 2, 1])
+            colunas = st.columns([3, 2, 2, 2, 2])
+
+            # Todas as colunas seguem "legenda + um valor". Misturar colunas de
+            # uma linha com colunas de duas fazia cada cartão ter uma altura, e
+            # a lista ficava serrilhada.
+            colunas[0].caption("Paciente")
             colunas[0].markdown(f"**{paciente['nome']}**")
+
             colunas[1].caption("Prontuário")
             colunas[1].markdown(f"`{paciente['prontuario']}`")
-            colunas[2].markdown(
-                ui.badge_risco(risco, avaliado_em), unsafe_allow_html=True
-            )
-            if colunas[3].button(
+
+            colunas[2].caption("Classificação de risco")
+            colunas[2].markdown(ui.badge_risco(risco, avaliado_em), unsafe_allow_html=True)
+
+            colunas[3].caption("Alertas abertos")
+            colunas[3].markdown(ui.badge_alertas(abertos), unsafe_allow_html=True)
+
+            colunas[4].caption("&nbsp;", unsafe_allow_html=True)
+            if colunas[4].button(
                 "Ver detalhes", key=f"detalhe-{paciente['id']}", use_container_width=True
             ):
                 st.session_state[DETALHE] = paciente["id"]
@@ -1464,7 +1483,12 @@ def main() -> None:
         # modelo na GPU, e sem ele a tela fica em branco por minutos sem dizer
         # se está trabalhando ou travada.
         with st.spinner("Carregando o modelo clínico… a primeira vez leva alguns minutos."):
-            get_llm()
+            backend = get_llm()
+            # Aquecer aqui, e não deixar para a primeira pergunta: `get_llm` só
+            # escolhe o backend, e os pesos subiam dentro da consulta — o médico
+            # esperava minutos achando que a pergunta dele é que era lenta.
+            if hasattr(backend, "aquecer"):
+                backend.aquecer()
     except AmbienteSemModelo as erro:
         st.error(str(erro), icon="⛔")
         st.caption(
