@@ -64,7 +64,7 @@ fi
 
 echo "==> 5/5  Servidor na porta ${PORTA}"
 pkill -f "streamlit run" 2>/dev/null || true
-nohup streamlit run portal.py \
+nohup streamlit run app.py \
   --server.port "${PORTA}" \
   --server.address 0.0.0.0 \
   --server.headless true \

@@ -8,6 +8,9 @@ time grava o vídeo demonstrando o mock sem perceber.
 
 from __future__ import annotations
 
+import pytest
+
+from hospital_assistant.llm import model_loader
 from hospital_assistant.llm.model_loader import MockLLM, descrever_backend, load_llm
 
 
@@ -77,16 +80,48 @@ def test_mock_llm_sinaliza_ausencia_de_fundamentacao() -> None:
     assert "não tem fundamentação documental" in MockLLM().generate("P")
 
 
-def test_load_llm_sem_adapter_cai_no_mock(monkeypatch) -> None:
+def _sem_adapter_configurado(monkeypatch) -> None:
+    """Ambiente realmente sem adapter.
+
+    Apagar a variável não basta: `_carregar_env` relê o `.env` do projeto, que
+    na máquina de quem treinou tem `HF_ADAPTER_REPO` preenchido, e a repõe. Sem
+    neutralizar essa leitura os testes abaixo passavam sem testar o que dizem.
+    """
+    monkeypatch.setattr(model_loader, "_carregar_env", lambda: None)
     monkeypatch.delenv("HF_ADAPTER_REPO", raising=False)
+
+
+def test_load_llm_sem_adapter_cai_no_mock(monkeypatch) -> None:
+    _sem_adapter_configurado(monkeypatch)
 
     assert isinstance(load_llm(local_adapter_dir=None), MockLLM)
 
 
 def test_descrever_backend_diz_qual_esta_ativo(monkeypatch) -> None:
-    """String usada no log e na Tela 1 para o operador saber o que está rodando."""
-    monkeypatch.delenv("HF_ADAPTER_REPO", raising=False)
+    """String usada no log e na barra lateral para o operador saber o que roda."""
+    _sem_adapter_configurado(monkeypatch)
 
     descricao = descrever_backend(load_llm(local_adapter_dir=None))
 
     assert "mock" in descricao.lower()
+
+
+def test_adapter_configurado_sem_gpu_levanta(monkeypatch) -> None:
+    """Produção é o padrão: degradar em silêncio já pôs o stand-in numa demo."""
+    monkeypatch.setattr(model_loader, "_carregar_env", lambda: None)
+    monkeypatch.setenv("HF_ADAPTER_REPO", "usuario/adapter")
+    monkeypatch.delenv("MODO_DEMONSTRACAO", raising=False)
+    monkeypatch.setattr(model_loader, "_dependencias_faltando", lambda: ["GPU CUDA"])
+
+    with pytest.raises(model_loader.AmbienteSemModelo, match="GPU CUDA"):
+        load_llm(local_adapter_dir=None)
+
+
+def test_modo_demonstracao_explicito_libera_o_mock(monkeypatch) -> None:
+    """Escape hatch para quem sabe que não tem GPU e quer a interface assim mesmo."""
+    monkeypatch.setattr(model_loader, "_carregar_env", lambda: None)
+    monkeypatch.setenv("HF_ADAPTER_REPO", "usuario/adapter")
+    monkeypatch.setenv("MODO_DEMONSTRACAO", "true")
+    monkeypatch.setattr(model_loader, "_dependencias_faltando", lambda: ["GPU CUDA"])
+
+    assert isinstance(load_llm(local_adapter_dir=None), MockLLM)

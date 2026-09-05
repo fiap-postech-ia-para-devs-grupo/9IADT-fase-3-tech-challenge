@@ -24,6 +24,20 @@ def _chroma_populated() -> bool:
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _sem_gpu_e_tudo_bem() -> None:
+    """Declara à suíte que rodar sem o modelo treinado é esperado.
+
+    `load_llm` passou a exigir produção por padrão: com `HF_ADAPTER_REPO`
+    definido e sem GPU, ele levanta em vez de devolver o stand-in. É o
+    comportamento certo em execução real — mas a suíte roda em máquina de
+    desenvolvimento e em CI, sem placa, e exercita o grafo de propósito contra
+    o mock. A flag torna essa intenção explícita, em vez de a suíte depender
+    de uma degradação silenciosa que existia por acidente.
+    """
+    os.environ["MODO_DEMONSTRACAO"] = "true"
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _bootstrap_data() -> None:
     if not PATIENTS_DB.exists():
         seed()

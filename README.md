@@ -18,7 +18,7 @@ neste repositório — comece por lá.
 | **Marcelo Costa** | Fine-tuning da LLM | `src/hospital_assistant/finetuning/`, `src/hospital_assistant/llm/`, `notebooks/finetuning_colab.ipynb`, adapter LoRA no HF Hub |
 | **Vinicius Geizler** | LangChain / RAG / Dados | `src/hospital_assistant/rag/`, `src/hospital_assistant/db/`, vector store em `data/chroma/` |
 | **Antonio Bazo** | LangGraph e Segurança | `src/hospital_assistant/graph/`, `src/hospital_assistant/safety/` |
-| **Renato Mattos** | Interface Streamlit | `app.py` (3 telas) |
+| **Renato Mattos** | Interface Streamlit | `app.py`, `src/hospital_assistant/ui/` |
 | **Vinicius Blasque** | Relatório, testes e vídeo | `docs/relatorio_tecnico.md`, `tests/`, vídeo de demonstração |
 
 ## Estado atual
@@ -61,8 +61,12 @@ uv run streamlit run app.py
 ```
 
 `uv run pytest` faz esse seed/ingest sozinho na primeira vez que rodar (via
-`tests/conftest.py`), mas `app.py` não — sem os dois comandos acima, a Tela 1
+`tests/conftest.py`), mas `app.py` não — sem os dois comandos acima, o assistente
 consulta um banco de pacientes e um índice RAG vazios.
+
+Sem placa de vídeo, defina `MODO_DEMONSTRACAO=true` no `.env`: a carga do modelo
+em 4-bit exige CUDA, e com `HF_ADAPTER_REPO` preenchido o app recusa abrir em vez
+de responder com o stand-in em silêncio.
 
 ```bash
 uv run pytest
@@ -100,7 +104,7 @@ src/hospital_assistant/
 ├── db/           # schema, seed, patient_tools (SQLite mock) — Geizler
 ├── graph/        # state, nodes, flow (LangGraph) — Antonio
 └── safety/       # guardrails, audit_log — Antonio
-app.py            # Streamlit, 3 telas — Renato
+app.py            # Streamlit, portal clínico — Renato
 notebooks/finetuning_colab.ipynb  # roda no Colab (GPU T4) — Marcelo
 docs/relatorio_tecnico.md         # relatório técnico — Blasque
 tests/                            # Blasque (+ testes de cada módulo por seu autor)

@@ -5,7 +5,7 @@
 # que briga com o carmim usado para alerta clínico.
 #
 # Os valores espelham as constantes de `ui/tema.py`; se mudarem lá, mude aqui.
-# Vale para os dois entry points (`app.py` e `portal.py`): é configuração de
+# Vale para o entry point `app.py`: é configuração de
 # projeto, e a mudança é apenas visual.
 
 [theme]

@@ -249,13 +249,32 @@ def _adapter_disponivel(local_adapter_dir: Path | None) -> str | None:
     return None
 
 
-def load_llm(local_adapter_dir: Path | None = LOCAL_ADAPTER_DIR) -> LLM:
-    """Devolve o backend disponível: fine-tunado se houver adapter, senão mock.
+class AmbienteSemModelo(RuntimeError):
+    """O adapter foi configurado, mas o ambiente não consegue carregá-lo."""
 
-    Nunca levanta exceção por falta de adapter ou de GPU — o resto do pipeline
-    (grafo, guardrails, auditoria, telas) precisa continuar demonstrável mesmo
-    antes de o adapter existir, que é a situação prevista no plano B da
-    ESTRATEGIA §13.
+
+def _demonstracao_autorizada() -> bool:
+    """Se o operador aceitou explicitamente rodar sem o modelo treinado."""
+    _carregar_env()
+    return os.environ.get("MODO_DEMONSTRACAO", "").strip().lower() in ("1", "true", "sim")
+
+
+def load_llm(local_adapter_dir: Path | None = LOCAL_ADAPTER_DIR) -> LLM:
+    """Devolve o backend a usar. Produção é o padrão.
+
+    Configurar `HF_ADAPTER_REPO` é declarar que se quer o modelo treinado. Se o
+    ambiente não puder carregá-lo, isto levanta `AmbienteSemModelo` em vez de
+    devolver o stand-in: a degradação silenciosa já colocou uma demonstração no
+    ar com o gerador de mentira e o único sinal foi um aviso perdido no log.
+    Falhar alto custa um erro visível; falhar baixo custa a credibilidade do
+    que está sendo demonstrado.
+
+    Duas saídas continuam abertas para o mock, ambas explícitas:
+
+    - `MODO_DEMONSTRACAO=true`, para quem sabe que não tem GPU e quer a
+      interface mesmo assim;
+    - nenhum adapter configurado, que é o caso dos testes e do plano B da
+      ESTRATEGIA §13 — aí não há intenção de produção para frustrar.
     """
     adapter = _adapter_disponivel(local_adapter_dir)
     if adapter is None:
@@ -263,15 +282,23 @@ def load_llm(local_adapter_dir: Path | None = LOCAL_ADAPTER_DIR) -> LLM:
         return MockLLM()
 
     faltando = _dependencias_faltando()
-    if faltando:
+    if not faltando:
+        return FineTunedLLM(adapter=adapter)
+
+    if _demonstracao_autorizada():
         logger.warning(
-            "Adapter %s configurado, mas o ambiente não suporta carregá-lo (%s). Usando MockLLM.",
+            "Adapter %s configurado, mas falta %s. MODO_DEMONSTRACAO ativo: usando MockLLM.",
             adapter,
             ", ".join(faltando),
         )
         return MockLLM()
 
-    return FineTunedLLM(adapter=adapter)
+    raise AmbienteSemModelo(
+        f"O adapter {adapter} está configurado, mas este ambiente não consegue carregá-lo: "
+        f"falta {', '.join(faltando)}. A carga em 4-bit exige placa de vídeo com CUDA. "
+        "Rode num ambiente com GPU, ou defina MODO_DEMONSTRACAO=true para usar a interface "
+        "com respostas de demonstração."
+    )
 
 
 def _dependencias_faltando() -> list[str]:
