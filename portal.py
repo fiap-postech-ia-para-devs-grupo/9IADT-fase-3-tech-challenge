@@ -516,8 +516,10 @@ def modulo_pacientes() -> None:
 
     pacientes = list_patients()
     if not pacientes:
+        # Sem comando de terminal: quem opera a tela não administra o banco, e
+        # o texto anterior expunha o módulo interno de carga de dados.
         st.warning(
-            "Nenhum paciente cadastrado. Rode `uv run python -m hospital_assistant.db.seed_mock_data`."
+            "Nenhum paciente cadastrado. Acione a equipe técnica para carregar a base."
         )
         return
 
