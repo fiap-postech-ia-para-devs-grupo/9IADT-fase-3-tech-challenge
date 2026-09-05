@@ -69,10 +69,21 @@ fi
 
 echo "==> 5/5  Servidor na porta ${PORTA}"
 pkill -f "streamlit run" 2>/dev/null || true
+# CORS e XSRF desligados porque o acesso vem pelo proxy do Colab, num domínio
+# `*.prod.colab.dev` diferente do host onde o servidor escuta. Com as proteções
+# ligadas o Streamlit aceita o GET da página e **recusa o WebSocket**
+# ("Rejecting WebSocket connection with disallowed Origin or Host header") — a
+# aplicação abre travada no esqueleto de carregamento, sem nenhum erro visível
+# na tela, porque é o WebSocket que entrega a interface.
+#
+# Seguro aqui: a porta só é alcançável por quem está autenticado na sessão do
+# Colab. Num deploy exposto à internet estas duas linhas não devem existir.
 nohup streamlit run app.py \
   --server.port "${PORTA}" \
   --server.address 0.0.0.0 \
   --server.headless true \
+  --server.enableCORS false \
+  --server.enableXsrfProtection false \
   > /content/portal.log 2>&1 &
 
 # Espera o healthcheck em vez de dormir um tempo fixo: o primeiro start baixa o
