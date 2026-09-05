@@ -8,6 +8,7 @@ por um endereço estranho.
 | | Máquina local | Google Colab |
 | --- | --- | --- |
 | Script | `scripts/start.sh` | `scripts/colab_portal.sh` |
+| Atualizar depois de mexer no código | reiniciar o script | `scripts/deploy_colab.sh` + a célula que ele imprime |
 | GPU | normalmente não | T4 de 15 GB |
 | Resposta do assistente | demonstração ou CPU | modelo treinado, em segundos |
 | Endereço | `http://localhost:8501` | `https://8501-….prod.colab.dev` |
@@ -44,6 +45,20 @@ não-gated.
 
 A primeira pergunta leva alguns minutos — baixa 6,4 GB de pesos e monta o modelo
 na GPU. As seguintes saem em segundos.
+
+### Atualizando a sessão depois de mexer no código
+
+```bash
+./scripts/deploy_colab.sh
+```
+
+Ele roda a suíte, publica na `main` e imprime a célula a rodar no notebook. Não
+faz mais que isso por um limite real: **a VM do Colab não é alcançável a partir
+da sua máquina.** Ela puxa do GitHub, então atualizar é sempre em dois tempos —
+publicar aqui, buscar lá.
+
+O endereço muda a cada reciclagem da VM. É por isso que ele é impresso a cada
+atualização, em vez de anotado num lugar fixo.
 
 ## Por que aquele endereço, e não `localhost`
 
