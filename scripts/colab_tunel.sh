@@ -27,10 +27,19 @@ if [ -z "${SENHA_PORTAL:-}" ]; then
 fi
 export SENHA_PORTAL
 
-echo "==> 1/3  Reiniciando o portal com a senha ativa"
-# O servidor precisa nascer com a variável no ambiente; reaproveita o script de
-# sempre, que é idempotente.
-curl -sL "https://raw.githubusercontent.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge/main/scripts/colab_portal.sh" | bash
+SETUP_LOG="${SETUP_LOG:-/content/setup.log}"
+
+echo "==> 1/3  Montando o ambiente e subindo o portal (1 a 4 min)"
+# A saída do bootstrap vai para um log em vez da tela: são dezenas de linhas de
+# pip e de avisos de biblioteca, e quem roda esta célula quer a URL, não o
+# relatório da instalação. Em caso de falha o log é despejado, porque aí o
+# detalhe é justamente o que importa.
+if ! curl -sL "https://raw.githubusercontent.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge/main/scripts/colab_portal.sh"      | bash > "${SETUP_LOG}" 2>&1; then
+  echo "    Falhou ao montar o ambiente. Últimas linhas:" >&2
+  tail -n 25 "${SETUP_LOG}" >&2
+  exit 1
+fi
+echo "    pronto (detalhes em ${SETUP_LOG})"
 
 echo "==> 2/3  Instalando o cloudflared"
 if ! command -v cloudflared >/dev/null 2>&1; then
