@@ -111,7 +111,9 @@ def test_adapter_configurado_sem_gpu_levanta(monkeypatch) -> None:
     monkeypatch.setattr(model_loader, "_carregar_env", lambda: None)
     monkeypatch.setenv("HF_ADAPTER_REPO", "usuario/adapter")
     monkeypatch.delenv("MODO_DEMONSTRACAO", raising=False)
-    monkeypatch.setattr(model_loader, "_dependencias_faltando", lambda: ["GPU CUDA"])
+    monkeypatch.setattr(
+        model_loader, "_dependencias_faltando", lambda exigir_gpu=True: ["GPU CUDA"]
+    )
 
     with pytest.raises(model_loader.AmbienteSemModelo, match="GPU CUDA"):
         load_llm(local_adapter_dir=None)
@@ -122,6 +124,65 @@ def test_modo_demonstracao_explicito_libera_o_mock(monkeypatch) -> None:
     monkeypatch.setattr(model_loader, "_carregar_env", lambda: None)
     monkeypatch.setenv("HF_ADAPTER_REPO", "usuario/adapter")
     monkeypatch.setenv("MODO_DEMONSTRACAO", "true")
-    monkeypatch.setattr(model_loader, "_dependencias_faltando", lambda: ["GPU CUDA"])
+    monkeypatch.setattr(
+        model_loader, "_dependencias_faltando", lambda exigir_gpu=True: ["GPU CUDA"]
+    )
 
     assert isinstance(load_llm(local_adapter_dir=None), MockLLM)
+
+
+# --- caminho de CPU ---------------------------------------------------------
+
+
+def _sem_gpu_mas_com_o_resto(monkeypatch) -> None:
+    """Ambiente típico de máquina sem placa: falta CUDA, o resto está instalado."""
+    monkeypatch.setattr(model_loader, "_carregar_env", lambda: None)
+    monkeypatch.setenv("HF_ADAPTER_REPO", "usuario/adapter")
+    monkeypatch.setattr(
+        model_loader,
+        "_dependencias_faltando",
+        lambda exigir_gpu=True: ["bitsandbytes", "GPU CUDA"] if exigir_gpu else [],
+    )
+
+
+def test_permitir_cpu_usa_o_modelo_real_sem_gpu(monkeypatch) -> None:
+    """Sem placa, resposta real ainda é possível — só lenta."""
+    _sem_gpu_mas_com_o_resto(monkeypatch)
+    monkeypatch.setenv("PERMITIR_CPU", "true")
+
+    llm = load_llm(local_adapter_dir=None)
+
+    assert isinstance(llm, model_loader.FineTunedLLM)
+    assert llm.em_cpu
+
+
+def test_cpu_tem_precedencia_sobre_demonstracao(monkeypatch) -> None:
+    """Com as duas flags, ganha a que dá resposta de verdade.
+
+    O mock é último recurso: quem ligou as duas aceitou esperar, e devolver o
+    stand-in nesse caso entregaria menos do que o ambiente permite.
+    """
+    _sem_gpu_mas_com_o_resto(monkeypatch)
+    monkeypatch.setenv("PERMITIR_CPU", "true")
+    monkeypatch.setenv("MODO_DEMONSTRACAO", "true")
+
+    assert isinstance(load_llm(local_adapter_dir=None), model_loader.FineTunedLLM)
+
+
+def test_sem_flag_de_cpu_continua_levantando(monkeypatch) -> None:
+    """CPU é opt-in: minutos por resposta não podem ser uma surpresa."""
+    _sem_gpu_mas_com_o_resto(monkeypatch)
+    monkeypatch.delenv("PERMITIR_CPU", raising=False)
+    monkeypatch.delenv("MODO_DEMONSTRACAO", raising=False)
+
+    with pytest.raises(model_loader.AmbienteSemModelo, match="PERMITIR_CPU"):
+        load_llm(local_adapter_dir=None)
+
+
+def test_descrever_backend_distingue_cpu_de_gpu() -> None:
+    """A barra lateral precisa dizer em que modo está — muda a expectativa de tempo."""
+    em_cpu = descrever_backend(model_loader.FineTunedLLM(adapter="u/a", em_cpu=True))
+    em_gpu = descrever_backend(model_loader.FineTunedLLM(adapter="u/a"))
+
+    assert "CPU" in em_cpu
+    assert "4-bit" in em_gpu

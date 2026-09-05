@@ -64,9 +64,16 @@ uv run streamlit run app.py
 `tests/conftest.py`), mas `app.py` não — sem os dois comandos acima, o assistente
 consulta um banco de pacientes e um índice RAG vazios.
 
-Sem placa de vídeo, defina `MODO_DEMONSTRACAO=true` no `.env`: a carga do modelo
-em 4-bit exige CUDA, e com `HF_ADAPTER_REPO` preenchido o app recusa abrir em vez
-de responder com o stand-in em silêncio.
+Sem placa de vídeo há duas saídas, ambas explícitas no `.env` — com
+`HF_ADAPTER_REPO` preenchido o app recusa abrir em vez de responder com o
+stand-in em silêncio:
+
+| Variável | O que faz | Custo |
+| --- | --- | --- |
+| `PERMITIR_CPU=true` | roda o modelo **treinado** em CPU, sem quantização | minutos por resposta; ~6,4 GB de RAM e ~7 GB de disco |
+| `MODO_DEMONSTRACAO=true` | abre a interface com respostas de demonstração | instantâneo, mas o texto não vem do modelo |
+
+`PERMITIR_CPU` tem precedência: resposta real ganha do stand-in.
 
 ```bash
 uv run pytest

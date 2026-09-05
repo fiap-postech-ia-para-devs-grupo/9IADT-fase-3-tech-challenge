@@ -165,12 +165,23 @@ class MockLLM:
 
 @dataclass
 class FineTunedLLM:
-    """Modelo base 4-bit + adapter LoRA, carregados uma única vez (lazy)."""
+    """Modelo base + adapter LoRA, carregados uma única vez (lazy).
+
+    Dois modos, mesmo adapter e mesma saída:
+
+    - **GPU**: base quantizada em 4-bit (NF4) pelo bitsandbytes. É o modo em que
+      o modelo foi treinado e avaliado, e responde em segundos.
+    - **CPU**: base em bfloat16, sem quantização. O bitsandbytes não quantiza
+      sem CUDA, então aqui os pesos entram inteiros na RAM — ~6,4 GB — e a
+      geração cai para minutos por resposta. Serve para ter resposta real onde
+      não há placa de vídeo, não para uso interativo.
+    """
 
     adapter: str
     # `None` = resolver na hora de carregar (oficial se acessível, senão
     # espelho). Fixar `BASE_MODEL` aqui quebraria quem treinou sobre o espelho.
     modelo_base: str | None = None
+    em_cpu: bool = False
     _pipeline: Any = field(default=None, init=False, repr=False)
 
     def _carregar(self) -> Any:
@@ -179,26 +190,42 @@ class FineTunedLLM:
 
         import torch
         from peft import PeftModel
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
         base = self.modelo_base or resolve_base_model()
         self.modelo_base = base
-        logger.info("Carregando %s + adapter %s...", base, self.adapter)
+        logger.info(
+            "Carregando %s + adapter %s em %s...",
+            base,
+            self.adapter,
+            "CPU (sem quantização)" if self.em_cpu else "GPU (4-bit NF4)",
+        )
 
         tokenizer = AutoTokenizer.from_pretrained(base)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        modelo_base = AutoModelForCausalLM.from_pretrained(
-            base,
-            quantization_config=BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_compute_dtype=torch.float16,
-            ),
-            device_map="auto",
-        )
+        if self.em_cpu:
+            # Sem `quantization_config`: o bitsandbytes precisa de CUDA para
+            # quantizar. bfloat16 em vez de float32 corta o consumo de RAM pela
+            # metade (~6,4 GB no lugar de ~12,8 GB), que costuma ser a diferença
+            # entre carregar e estourar a memória da máquina.
+            modelo_base = AutoModelForCausalLM.from_pretrained(
+                base, dtype=torch.bfloat16, device_map="cpu"
+            )
+        else:
+            from transformers import BitsAndBytesConfig
+
+            modelo_base = AutoModelForCausalLM.from_pretrained(
+                base,
+                quantization_config=BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                ),
+                device_map="auto",
+            )
         modelo = PeftModel.from_pretrained(modelo_base, self.adapter)
         modelo.eval()
 
@@ -253,10 +280,19 @@ class AmbienteSemModelo(RuntimeError):
     """O adapter foi configurado, mas o ambiente não consegue carregá-lo."""
 
 
+def _flag(nome: str) -> bool:
+    _carregar_env()
+    return os.environ.get(nome, "").strip().lower() in ("1", "true", "sim")
+
+
 def _demonstracao_autorizada() -> bool:
     """Se o operador aceitou explicitamente rodar sem o modelo treinado."""
-    _carregar_env()
-    return os.environ.get("MODO_DEMONSTRACAO", "").strip().lower() in ("1", "true", "sim")
+    return _flag("MODO_DEMONSTRACAO")
+
+
+def _cpu_autorizada() -> bool:
+    """Se o operador aceitou rodar o modelo real em CPU, ciente da lentidão."""
+    return _flag("PERMITIR_CPU")
 
 
 def load_llm(local_adapter_dir: Path | None = LOCAL_ADAPTER_DIR) -> LLM:
@@ -281,27 +317,54 @@ def load_llm(local_adapter_dir: Path | None = LOCAL_ADAPTER_DIR) -> LLM:
         logger.warning("Nenhum adapter LoRA encontrado (defina HF_ADAPTER_REPO). Usando MockLLM.")
         return MockLLM()
 
-    faltando = _dependencias_faltando()
-    if not faltando:
+    faltando_gpu = _dependencias_faltando(exigir_gpu=True)
+    if not faltando_gpu:
         return FineTunedLLM(adapter=adapter)
+
+    # Sem GPU, o modelo real ainda é possível em CPU — devagar, mas real. Fica
+    # atrás de uma flag porque a diferença é grande demais para ser automática:
+    # minutos por resposta e ~6,4 GB de RAM não podem surpreender quem só subiu
+    # a aplicação esperando a experiência normal.
+    if _cpu_autorizada():
+        faltando_cpu = _dependencias_faltando(exigir_gpu=False)
+        if not faltando_cpu:
+            logger.warning(
+                "Sem GPU (falta %s). PERMITIR_CPU ativo: carregando o adapter %s em CPU. "
+                "As respostas são do modelo treinado, mas levam minutos.",
+                ", ".join(faltando_gpu),
+                adapter,
+            )
+            return FineTunedLLM(adapter=adapter, em_cpu=True)
+        faltando_gpu = faltando_cpu
 
     if _demonstracao_autorizada():
         logger.warning(
             "Adapter %s configurado, mas falta %s. MODO_DEMONSTRACAO ativo: usando MockLLM.",
             adapter,
-            ", ".join(faltando),
+            ", ".join(faltando_gpu),
         )
         return MockLLM()
 
     raise AmbienteSemModelo(
-        f"O adapter {adapter} está configurado, mas este ambiente não consegue carregá-lo: "
-        f"falta {', '.join(faltando)}. A carga em 4-bit exige placa de vídeo com CUDA. "
-        "Rode num ambiente com GPU, ou defina MODO_DEMONSTRACAO=true para usar a interface "
-        "com respostas de demonstração."
+        "\n".join(
+            [
+                f"O adapter {adapter} está configurado, mas este ambiente não consegue "
+                f"carregá-lo: falta {', '.join(faltando_gpu)}. A carga em 4-bit exige placa "
+                "de vídeo com CUDA.",
+                "",
+                "Três saídas:",
+                "· rode num ambiente com GPU — é o caso do Google Colab com T4;",
+                "· defina PERMITIR_CPU=true para usar o modelo treinado em CPU: respostas "
+                "reais, porém em minutos, e exige ~6,4 GB de RAM livre e ~7 GB de disco "
+                "para o download;",
+                "· defina MODO_DEMONSTRACAO=true para abrir a interface com respostas de "
+                "demonstração.",
+            ]
+        )
     )
 
 
-def _dependencias_faltando() -> list[str]:
+def _dependencias_faltando(exigir_gpu: bool = True) -> list[str]:
     """Lista o que impede carregar o modelo quantizado neste ambiente.
 
     Checar só `peft`/`torch` não bastava: os dois são dependências principais
@@ -311,15 +374,16 @@ def _dependencias_faltando() -> list[str]:
     primeira pergunta da Tela 1 — em vez da degradação para MockLLM que o
     docstring deste módulo promete. A carga em 4-bit também exige GPU.
     """
-    faltando: list[str] = []
+    modulos = ("torch", "peft", "bitsandbytes") if exigir_gpu else ("torch", "peft")
 
-    for modulo in ("torch", "peft", "bitsandbytes"):
+    faltando: list[str] = []
+    for modulo in modulos:
         try:
             __import__(modulo)
         except Exception:  # noqa: BLE001 — bitsandbytes falha em import por falta de CUDA, não só ImportError
             faltando.append(modulo)
 
-    if "torch" not in faltando:
+    if exigir_gpu and "torch" not in faltando:
         import torch
 
         if not torch.cuda.is_available():
@@ -345,5 +409,6 @@ def get_llm() -> LLM:
 def descrever_backend(llm: LLM) -> str:
     """Texto curto para log e para a Tela 1 — qual modelo está de fato ativo."""
     if isinstance(llm, FineTunedLLM):
-        return f"Llama-3.2-3B-Instruct + adapter LoRA ({llm.adapter})"
+        onde = "CPU, sem quantização" if llm.em_cpu else "GPU, 4-bit"
+        return f"Llama-3.2-3B-Instruct + adapter LoRA ({llm.adapter}) — {onde}"
     return "MockLLM (stand-in determinístico — nenhum adapter LoRA carregado)"
