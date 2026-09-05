@@ -232,3 +232,35 @@ def test_nome_da_fonte_aceita_caminho_do_windows() -> None:
 def test_nome_da_fonte_sem_arquivo_degrada_para_rotulo_legivel() -> None:
     """Documento removido do corpus não pode derrubar a tela de auditoria."""
     assert rotulos.nome_da_fonte("protocolo_inexistente.md") == "Protocolo inexistente"
+
+
+def test_fontes_agrupam_trechos_do_mesmo_protocolo() -> None:
+    """O RAG devolve trechos; dois do mesmo documento davam duas linhas iguais.
+
+    Depois que o rótulo virou o título do protocolo, "FAQ interno — Solicitação
+    de exames urgentes (0.49)" aparecia repetido, e a lista deixava de informar
+    de quantos documentos distintos a resposta saiu.
+    """
+    resultado = ui.formatar_fontes(
+        [
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.49},
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.41},
+            {"source": "protocolos_sinteticos/dor_toracica_aguda.md", "score": 0.46},
+        ]
+    )
+
+    assert resultado.count("Suspeita de sepse") == 1
+    assert "Dor torácica aguda" in resultado
+
+
+def test_fontes_agrupadas_ficam_com_o_melhor_score() -> None:
+    """Mostrar o score mais fraco subestimaria a aderência da resposta à fonte."""
+    resultado = ui.formatar_fontes(
+        [
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.41},
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.81},
+        ]
+    )
+
+    assert "(0.81)" in resultado
+    assert "(0.41)" not in resultado

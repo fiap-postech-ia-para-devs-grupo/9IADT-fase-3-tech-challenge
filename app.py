@@ -913,12 +913,27 @@ def modulo_laudos() -> None:
         "identificado. Só respostas aprovadas aparecem aqui."
     )
 
-    aprovadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
-    if not aprovadas:
+    validadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
+    if not validadas:
         st.info(
             "Nenhuma resposta aprovada ainda. Aprove uma na fila de validação para poder "
             "emitir o laudo."
         )
+        return
+
+    # Só o que ainda não virou laudo. Manter as concluídas na mesma lista fazia
+    # o médico procurar o que falta fazer no meio do que já foi feito; as
+    # emitidas ficam numa seção própria, para reimpressão.
+    emitidas = [
+        linha
+        for linha in validadas
+        if laudo.esta_completo(linha["id"], linha["paciente_id"])
+    ]
+    aprovadas = [linha for linha in validadas if linha not in emitidas]
+
+    if not aprovadas:
+        st.success("Todas as análises validadas já têm laudo emitido.")
+        _laudos_emitidos(emitidas)
         return
 
     rotulos_laudo = {
@@ -1019,6 +1034,45 @@ def modulo_laudos() -> None:
         mime="text/markdown",
         type="primary",
     )
+
+    _laudos_emitidos(emitidas)
+
+
+def _laudos_emitidos(linhas: list[AuditRow]) -> None:
+    """Laudos já concluídos, para reimpressão.
+
+    Ficam fora da lista de emissão para ela mostrar só o que falta fazer, mas
+    continuam acessíveis: um laudo emitido é documento do paciente, e sumir da
+    tela depois de gerado obrigaria a refazer o que já foi assinado.
+    """
+    if not linhas:
+        return
+
+    pacientes = {p["id"]: p for p in list_patients()}
+
+    st.markdown("#### Laudos emitidos")
+    for linha in linhas:
+        registro_id = linha["id"]
+        rascunho = laudo.obter_rascunho(registro_id)
+        paciente = pacientes.get(linha["paciente_id"] or rascunho["paciente_id"] or "")
+        with st.expander(
+            f"nº {registro_id} · {paciente['nome'] if paciente else 'sem paciente'} · "
+            f"{ui.resumir_texto(linha['pergunta'], limite=60)}"
+        ):
+            documento = laudo.gerar(
+                dict(linha),
+                paciente,
+                anamnese=rascunho["anamnese"],
+                prescricao=rascunho["prescricao"],
+            )
+            st.markdown(documento)
+            st.download_button(
+                "Baixar",
+                data=documento,
+                file_name=f"laudo-{registro_id}.md",
+                mime="text/markdown",
+                key=f"baixar-emitido-{registro_id}",
+            )
 
 
 PAGINAS = {

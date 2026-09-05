@@ -51,16 +51,27 @@ def formatar_fontes(fontes: Any) -> str:
     if not isinstance(fontes, list) or not fontes:
         return "—"
 
-    partes: list[str] = []
+    # Agrupa por protocolo, guardando o melhor score. O RAG devolve trechos, e
+    # dois trechos do mesmo documento viravam duas entradas idênticas depois que
+    # o rótulo passou a ser o título em vez do nome do arquivo — a lista parecia
+    # repetida e não dizia de quantos documentos distintos a resposta saiu.
+    melhores: dict[str, float | None] = {}
     for fonte in fontes:
         if not isinstance(fonte, dict):
             continue
         titulo = rotulos.nome_da_fonte(str(fonte.get("source", "")))
         score = fonte.get("score")
-        if isinstance(score, int | float):
-            partes.append(f"{titulo} ({score:.2f})")
-        else:
-            partes.append(titulo)
+        score = float(score) if isinstance(score, int | float) else None
+
+        if titulo not in melhores:
+            melhores[titulo] = score
+        elif score is not None and (melhores[titulo] is None or score > melhores[titulo]):
+            melhores[titulo] = score
+
+    partes = [
+        f"{titulo} ({score:.2f})" if score is not None else titulo
+        for titulo, score in melhores.items()
+    ]
     return ", ".join(partes) if partes else "—"
 
 
