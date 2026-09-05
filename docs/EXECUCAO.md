@@ -30,6 +30,15 @@ um erro na tela sem contexto.
 
 ## Rodando no Colab
 
+A **seção 0 do notebook** é o setup da aplicação: uma célula que monta o
+ambiente do zero e devolve o endereço. É também a célula de recuperação — a VM
+é reciclada por inatividade e leva tudo junto, e nada dentro dela se reergue
+sozinho, porque ela deixou de existir.
+
+Para um endereço que funciona em qualquer dispositivo, inclusive celular, ela
+usa `colab_tunel.sh`. Para uso restrito ao navegador que abriu o Colab, a
+célula seguinte usa `colab_portal.sh` com o `proxyPort`.
+
 Numa célula do notebook, com o ambiente de execução em **T4 GPU**:
 
 ```python
