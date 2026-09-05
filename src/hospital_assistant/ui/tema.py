@@ -18,14 +18,19 @@ PRIMARIA = "#0F6B62"
 PRIMARIA_ESCURA = "#0A4F49"
 PRIMARIA_CLARA = "#E3F0EE"
 
-PENDENTE = "#B45309"
-PENDENTE_FUNDO = "#FDF3E7"
-ALERTA = "#9F1239"
-ALERTA_FUNDO = "#FCEBEF"
-APROVADO = "#15803D"
-APROVADO_FUNDO = "#EAF6EE"
-NEUTRO = "#5A6E6B"
-NEUTRO_FUNDO = "#EFF3F2"
+# Cada estado recebe uma matiz claramente distinta das demais — âmbar, carmim,
+# verde e ardósia — com o texto em tom escuro o suficiente para passar em
+# contraste sobre o próprio fundo do chip. Tons pastel de mesma família
+# confundiriam "pendente" com "alerta" numa lista longa, que é exatamente onde
+# a distinção importa.
+PENDENTE = "#9A5B00"
+PENDENTE_FUNDO = "#FDF0DC"
+ALERTA = "#A81F43"
+ALERTA_FUNDO = "#FCE8EE"
+APROVADO = "#0F7040"
+APROVADO_FUNDO = "#E3F5EA"
+NEUTRO = "#4E6360"
+NEUTRO_FUNDO = "#EBF1EF"
 
 TEXTO = "#0F1F1D"
 TEXTO_SUAVE = "#45605C"
@@ -46,9 +51,9 @@ CORES_STATUS: dict[str, tuple[str, str, str]] = {
 
 CORES_CATEGORIA: dict[str, tuple[str, str]] = {
     "protocolo": (PRIMARIA, PRIMARIA_CLARA),
-    "exames": ("#1D4ED8", "#E8EEFD"),
+    "exames": ("#1B4FA8", "#E6EDF9"),
     "medicacao": (PENDENTE, PENDENTE_FUNDO),
-    "fluxo": ("#6D28D9", "#F1EBFC"),
+    "fluxo": ("#5B3AA8", "#EFEAFA"),
     "seguranca": (ALERTA, ALERTA_FUNDO),
 }
 
@@ -70,6 +75,29 @@ def logo_svg(altura: int = 34) -> str:
         stroke-linejoin="round" fill="none"/>
 </svg>
 """
+
+
+# Ícones da navegação. Inline e geométricos, no traço de 1.6px que combina com
+# o peso do texto do menu — um pacote de ícones inteiro seria dependência nova
+# para cinco símbolos.
+ICONES: dict[str, str] = {
+    "assistente": '<path d="M3 5h10v7H7l-3 3V5z"/>',
+    "validacao": '<path d="M4 8.5 6.8 11 12 4.5"/><path d="M2.5 2.5h11v11h-11z" opacity=".45"/>',
+    "conhecimento": '<path d="M3 3.5h4.2c.9 0 1.8.5 1.8 1.4V13c0-.7-.7-1.2-1.6-1.2H3z"/>'
+    '<path d="M13 3.5H8.8c-.9 0-1.8.5-1.8 1.4V13c0-.7.7-1.2 1.6-1.2H13z"/>',
+    "pacientes": '<circle cx="8" cy="5.5" r="2.4"/><path d="M3.4 13.2c0-2.3 2-4 4.6-4s4.6 1.7 4.6 4"/>',
+    "auditoria": '<path d="M3 4h10M3 8h10M3 12h6"/>',
+}
+
+
+def icone(nome: str, tamanho: int = 15) -> str:
+    """Ícone de navegação como SVG inline, herdando a cor do item do menu."""
+    traco = ICONES.get(nome, ICONES["auditoria"])
+    return (
+        f'<svg width="{tamanho}" height="{tamanho}" viewBox="0 0 16 16" fill="none" '
+        f'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" '
+        f'stroke-linejoin="round" aria-hidden="true">{traco}</svg>'
+    )
 
 
 def cabecalho_marca() -> str:
@@ -115,10 +143,66 @@ def css() -> str:
   .marca-texto strong {{ font-size: 1.02rem; color: {TEXTO}; letter-spacing: -.01em; }}
   .marca-texto span {{ font-size: .76rem; color: {TEXTO_TENUE}; }}
 
+  /* --- navegação -------------------------------------------------------- */
+
   .grupo-menu {{
-    font-size: .68rem; font-weight: 700; letter-spacing: .13em;
+    font-size: .66rem; font-weight: 700; letter-spacing: .14em;
     text-transform: uppercase; color: {TEXTO_TENUE};
-    margin: 1.1rem 0 .3rem;
+    margin: 1.15rem 0 .35rem; padding-left: .7rem;
+    user-select: none;   /* agrupador não é clicável */
+  }}
+  .grupo-menu:first-of-type {{ margin-top: .3rem; }}
+
+  .nav-item {{
+    display: flex; align-items: center; gap: .6rem;
+    padding: .46rem .7rem; margin-bottom: .1rem;
+    border-radius: 7px;
+    border-left: 3px solid transparent;   /* reserva o indicador lateral */
+    color: {PRIMARIA}; font-size: .89rem; font-weight: 500;
+    text-decoration: none; background: transparent;
+    transition: background .12s ease, color .12s ease;
+  }}
+  /* O Streamlit estiliza todo `a` dentro de markdown com sublinhado e azul de
+     link, com especificidade maior que a nossa. Sem `!important` nas duas
+     propriedades o item de menu continua com cara de hyperlink. */
+  .nav-item, .nav-item:hover, .nav-item:visited, .nav-item:active {{
+    text-decoration: none !important;
+    color: {PRIMARIA} !important;
+  }}
+  .nav-item:hover {{ background: {PRIMARIA_CLARA}; color: {PRIMARIA_ESCURA} !important; }}
+  .nav-item svg {{ flex: 0 0 auto; opacity: .65; }}
+
+  .nav-item.ativo, .nav-item.ativo:visited {{
+    background: {PRIMARIA_CLARA};
+    border-left-color: {PRIMARIA};
+    color: {PRIMARIA_ESCURA} !important;
+    font-weight: 600;
+  }}
+  .nav-item.ativo svg {{ opacity: 1; }}
+
+  .nav-contagem {{
+    margin-left: auto;
+    min-width: 20px; height: 20px; padding: 0 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: {ALERTA}; color: #FFFFFF;
+    font-size: .7rem; font-weight: 700; line-height: 1;
+    border-radius: 100px; font-variant-numeric: tabular-nums;
+  }}
+
+  .rodape-status {{
+    margin-top: 1.3rem; padding-top: .9rem;
+    border-top: 1px solid {BORDA};
+    display: flex; flex-direction: column; gap: .4rem;
+  }}
+  .chip {{
+    display: inline-flex; align-items: center; gap: .4rem;
+    font-size: .72rem; font-weight: 600;
+    padding: .22rem .55rem; border-radius: 100px; width: fit-content;
+  }}
+  .chip-modelo {{
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: .7rem; color: {TEXTO_TENUE}; padding-left: .2rem;
+    word-break: break-word; font-weight: 400;
   }}
 
   .badge {{
@@ -192,5 +276,101 @@ def css() -> str:
 
   div[data-testid="stDataFrame"] {{ border-radius: 6px; }}
   .stButton > button {{ border-radius: 6px; font-weight: 500; }}
+
+  /* --- assistente ------------------------------------------------------- */
+
+  /* Coluna central estreita. Texto clínico corrido em 1400px de largura é
+     desconfortável de ler; ~62rem mantém a linha perto da faixa legível e dá
+     à conversa o eixo central que se espera de uma interface de chat. */
+  .st-key-bloco_assistente {{ max-width: 62rem; margin: 0 auto; }}
+
+  .saudacao {{
+    text-align: center; margin: 2.2rem 0 1.4rem;
+  }}
+  .saudacao h2 {{
+    font-size: 1.65rem; font-weight: 600; color: {TEXTO};
+    letter-spacing: -.02em; margin: 0 0 .4rem;
+  }}
+  .saudacao p {{ color: {TEXTO_TENUE}; font-size: .92rem; margin: 0; }}
+
+  /* Composer arredondado. O seletor é global aos textareas de propósito: o
+     campo de edição da fila de validação ganha o mesmo tratamento, e manter
+     uma única aparência de entrada de texto é mais coerente que criar duas. */
+  div[data-testid="stTextArea"] textarea {{
+    border-radius: 14px !important;
+    border: 1px solid {BORDA} !important;
+    padding: .85rem 1rem !important;
+    font-size: .95rem;
+    background: {SUPERFICIE};
+  }}
+  div[data-testid="stTextArea"] textarea:focus {{
+    border-color: {PRIMARIA} !important;
+    box-shadow: 0 0 0 3px {PRIMARIA}1f !important;
+  }}
+
+  .contador {{
+    display: flex; justify-content: flex-end;
+    font-size: .72rem; color: {TEXTO_TENUE};
+    font-variant-numeric: tabular-nums; margin-top: -.4rem;
+  }}
+  .contador.excedido {{ color: {ALERTA}; font-weight: 600; }}
+
+  /* Chips de sugestão: discretos, uma linha, sem competir com o composer. */
+  .sugestoes-titulo {{
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .1em;
+    color: {TEXTO_TENUE}; margin: 1.1rem 0 .45rem;
+  }}
+  /* Sugestões usam a mesma pílula verde dos indicadores de status do rodapé:
+     um atalho para a base de conhecimento é um selo, não mais um botão
+     disputando atenção com o composer. */
+  /* Chips ancorados na `key` do widget, e não em `.stButton > button`: quando o
+     botão tem `help`, o Streamlit o embrulha num alvo de tooltip e o seletor de
+     filho direto para de casar — era por isso que só o "Gerar outras", único
+     sem `help`, ficava verde. */
+  /* Chips colados: o respiro padrão entre colunas do Streamlit é grande demais
+     e desmancha a leitura de conjunto. */
+  .st-key-linha_sugestoes div[data-testid="stHorizontalBlock"] {{ gap: .3rem; }}
+  .st-key-linha_sugestoes div[data-testid="stColumn"] {{ min-width: 0; }}
+
+  div[class*="st-key-sugestao-"] button,
+  .st-key-regerar_sugestoes button,
+  .st-key-limpar_conversa button {{
+    border-radius: 100px;
+    border: 1px solid {PRIMARIA};
+    background: {SUPERFICIE};
+    color: {PRIMARIA_ESCURA};
+    padding: .2rem .78rem; min-height: 0; line-height: 1.4;
+    white-space: nowrap;   /* sem isto o rótulo quebra e a pílula vira bolha */
+  }}
+  /* O rótulo mora num `p` com tamanho próprio; sem esta regra o chip encolhe
+     mas o texto continua no corpo de botão comum. */
+  div[class*="st-key-sugestao-"] button p,
+  .st-key-regerar_sugestoes button p,
+  .st-key-limpar_conversa button p {{
+    font-size: .72rem; font-weight: 600; margin: 0; white-space: nowrap;
+  }}
+  div[class*="st-key-sugestao-"] button:hover,
+  .st-key-limpar_conversa button:hover {{
+    background: {PRIMARIA_CLARA}; border-color: {PRIMARIA}; color: {PRIMARIA_ESCURA};
+  }}
+  /* "Gerar outras" é ação, não atalho: fica preenchido para se distinguir dos
+     chips de sugestão, que agora são contornados. */
+  .st-key-regerar_sugestoes button {{
+    background: {PRIMARIA}; color: #FFFFFF; border-color: {PRIMARIA};
+  }}
+  .st-key-regerar_sugestoes button:hover {{
+    background: {PRIMARIA_ESCURA}; border-color: {PRIMARIA_ESCURA}; color: #FFFFFF;
+  }}
+  /* O botão de envio é a ação primária e mantém a forma de botão. Dentro de um
+     st.form o Streamlit troca o `kind` para `primaryFormSubmit`, então os dois
+     precisam constar — só `primary` deixaria o envio com cara de chip. */
+  .st-key-enviar_pergunta button {{
+    border-radius: 8px; padding: .45rem 1.4rem;
+    background: {PRIMARIA}; border-color: {PRIMARIA}; color: #FFFFFF;
+  }}
+  .st-key-enviar_pergunta button p {{ font-size: .9rem; font-weight: 600; }}
+  .st-key-enviar_pergunta button:hover {{
+    background: {PRIMARIA_ESCURA}; border-color: {PRIMARIA_ESCURA};
+  }}
 </style>
 """

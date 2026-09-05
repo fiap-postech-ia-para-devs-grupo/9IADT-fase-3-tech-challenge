@@ -49,17 +49,20 @@ def test_data_hora_invalida_volta_intacta() -> None:
 # --- fontes -----------------------------------------------------------------
 
 
-def test_fontes_viram_arquivo_e_score() -> None:
+def test_fontes_viram_titulo_do_protocolo_e_score() -> None:
     """Este é o campo que aparecia como [object Object] na tabela."""
     resultado = ui.formatar_fontes(FONTES)
 
-    assert "sepse.md (0.81)" in resultado
+    assert "Protocolo interno — Suspeita de sepse (0.81)" in resultado
     assert "[object" not in resultado
 
 
-def test_fontes_usam_so_o_nome_do_arquivo() -> None:
-    """O caminho completo com barra invertida do Windows não cabe na célula."""
-    assert "protocolos_sinteticos" not in ui.formatar_fontes(FONTES)
+def test_fontes_nao_expoem_nome_de_arquivo() -> None:
+    """A auditoria é lida por médico: caminho e extensão não dizem nada a ele."""
+    resultado = ui.formatar_fontes(FONTES)
+
+    assert "protocolos_sinteticos" not in resultado
+    assert ".md" not in resultado
 
 
 def test_fontes_vazias_viram_travessao() -> None:
@@ -68,7 +71,9 @@ def test_fontes_vazias_viram_travessao() -> None:
 
 
 def test_fonte_sem_score_nao_quebra() -> None:
-    assert ui.formatar_fontes([{"text": "t", "source": "a.md"}]) == "a.md"
+    assert ui.formatar_fontes([{"text": "t", "source": "sepse.md"}]) == (
+        "Protocolo interno — Suspeita de sepse"
+    )
 
 
 # --- flags e status ---------------------------------------------------------
@@ -125,7 +130,7 @@ def test_tabela_formata_os_valores_das_celulas() -> None:
 
     assert linha["Data e hora"] == "04/09/2026 22:30"
     assert linha["Situação"] == "Pendente de validação"
-    assert "sepse.md" in linha["Fontes consultadas"]
+    assert "Suspeita de sepse" in linha["Fontes consultadas"]
 
 
 def test_tabela_vazia_mantem_as_colunas() -> None:
@@ -193,3 +198,27 @@ def test_faq_busca_sem_resultado_devolve_vazio() -> None:
 def test_toda_pergunta_frequente_cita_a_fonte() -> None:
     """A explicabilidade exigida pelo desafio vale também para a base estática."""
     assert all(item["fonte"] for item in rotulos.FAQ)
+
+
+# --- procedência ------------------------------------------------------------
+
+
+def test_nome_da_fonte_le_o_titulo_do_proprio_protocolo() -> None:
+    """Evita um mapa arquivo→título, que sairia de sincronia a cada protocolo novo."""
+    assert (
+        rotulos.nome_da_fonte("protocolos_sinteticos/sepse.md")
+        == "Protocolo interno — Suspeita de sepse"
+    )
+
+
+def test_nome_da_fonte_aceita_caminho_do_windows() -> None:
+    """O RAG grava a origem com a barra do sistema onde a ingestão rodou."""
+    assert (
+        rotulos.nome_da_fonte(r"data\raw\protocolos_sinteticos\crise_hipertensiva.md")
+        == "Protocolo interno — Crise hipertensiva"
+    )
+
+
+def test_nome_da_fonte_sem_arquivo_degrada_para_rotulo_legivel() -> None:
+    """Documento removido do corpus não pode derrubar a tela de auditoria."""
+    assert rotulos.nome_da_fonte("protocolo_inexistente.md") == "Protocolo inexistente"

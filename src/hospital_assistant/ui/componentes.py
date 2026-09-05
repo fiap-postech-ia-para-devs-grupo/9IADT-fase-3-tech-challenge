@@ -42,10 +42,11 @@ def formatar_data_hora(valor: str) -> str:
 
 
 def formatar_fontes(fontes: Any) -> str:
-    """Resume a lista de chunks do RAG como `arquivo (score)`, separados por vírgula.
+    """Resume os chunks do RAG como `protocolo (score)`, separados por vírgula.
 
     É o campo que aparecia como `[object Object]`: uma lista de dicionários
-    entregue direto ao `st.dataframe`.
+    entregue direto ao `st.dataframe`. O nome do arquivo dá lugar ao título do
+    protocolo — a auditoria é lida por médico, não por quem mantém o índice.
     """
     if not isinstance(fontes, list) or not fontes:
         return "—"
@@ -54,12 +55,12 @@ def formatar_fontes(fontes: Any) -> str:
     for fonte in fontes:
         if not isinstance(fonte, dict):
             continue
-        arquivo = str(fonte.get("source", "desconhecida")).replace("\\", "/").split("/")[-1]
+        titulo = rotulos.nome_da_fonte(str(fonte.get("source", "")))
         score = fonte.get("score")
         if isinstance(score, int | float):
-            partes.append(f"{arquivo} ({score:.2f})")
+            partes.append(f"{titulo} ({score:.2f})")
         else:
-            partes.append(arquivo)
+            partes.append(titulo)
     return ", ".join(partes) if partes else "—"
 
 
@@ -104,14 +105,14 @@ def badge_categoria(categoria: str) -> str:
 
 
 def cartao_fonte(fonte: dict[str, Any], posicao: int) -> str:
-    """Cartão de uma fonte do RAG: arquivo, score com barra e trecho recuperado.
+    """Cartão de uma fonte do RAG: protocolo, score com barra e trecho recuperado.
 
     Substitui o dump de JSON cru. O score vira barra além de número porque a
     comparação entre as três fontes é o que interessa ao médico ao decidir se
     a resposta está bem fundamentada — e comparar barras é mais rápido que
     comparar decimais.
     """
-    arquivo = str(fonte.get("source", "desconhecida")).replace("\\", "/")
+    titulo = rotulos.nome_da_fonte(str(fonte.get("source", "")))
     trecho = resumir_texto(fonte.get("text", ""), limite=320)
     score = fonte.get("score")
 
@@ -126,7 +127,7 @@ def cartao_fonte(fonte: dict[str, Any], posicao: int) -> str:
     return f"""
 <div class="fonte-card">
   <div class="fonte-topo">
-    <span class="fonte-arquivo">[{posicao}] {html.escape(arquivo)}</span>
+    <span class="fonte-arquivo">[{posicao}] {html.escape(titulo)}</span>
     {score_html}
   </div>
   <div class="fonte-trecho">{html.escape(trecho)}</div>

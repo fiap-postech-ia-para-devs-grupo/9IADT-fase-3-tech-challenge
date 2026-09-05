@@ -14,7 +14,11 @@ fonte que elas resumem.
 
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
 from typing import TypedDict
+
+from hospital_assistant.paths import RAW_DATA_DIR
 
 # --- rótulos de coluna ------------------------------------------------------
 
@@ -70,7 +74,7 @@ class PerguntaFrequente(TypedDict):
     pergunta: str
     resposta: str
     categoria: str
-    fonte: str
+    fonte: str  # referência legível, nunca caminho de código
 
 
 CATEGORIAS: dict[str, str] = {
@@ -80,6 +84,13 @@ CATEGORIAS: dict[str, str] = {
     "fluxo": "Fluxo do sistema",
     "seguranca": "Segurança",
 }
+
+# Categorias que valem como atalho de pergunta no assistente. As demais
+# (`fluxo`, `seguranca`, `medicacao`) documentam o comportamento do próprio
+# sistema — "por que a resposta não veio do modelo treinado" é informação útil
+# na base de conhecimento, mas oferecê-la ao médico como sugestão de pergunta
+# clínica desvia o composer da função dele.
+CATEGORIAS_CLINICAS: tuple[str, ...] = ("protocolo", "exames")
 
 FAQ: list[PerguntaFrequente] = [
     {
@@ -91,7 +102,7 @@ FAQ: list[PerguntaFrequente] = [
             "do médico responsável."
         ),
         "categoria": "protocolo",
-        "fonte": "data/raw/protocolos_sinteticos/sepse.md",
+        "fonte": "Protocolo interno — Suspeita de sepse",
     },
     {
         "pergunta": "Quais critérios do qSOFA indicam gravidade?",
@@ -101,7 +112,7 @@ FAQ: list[PerguntaFrequente] = [
             "protocolo institucional de sepse."
         ),
         "categoria": "protocolo",
-        "fonte": "data/raw/protocolos_sinteticos/sepse.md",
+        "fonte": "Protocolo interno — Suspeita de sepse",
     },
     {
         "pergunta": "Como conduzir dor torácica aguda pela classificação de risco?",
@@ -113,7 +124,7 @@ FAQ: list[PerguntaFrequente] = [
             "imediatamente."
         ),
         "categoria": "protocolo",
-        "fonte": "data/raw/protocolos_sinteticos/dor_toracica_aguda.md",
+        "fonte": "Protocolo interno — Dor torácica aguda",
     },
     {
         "pergunta": "Qual o tempo máximo para liberação de exame urgente?",
@@ -124,7 +135,7 @@ FAQ: list[PerguntaFrequente] = [
             "sem resultado."
         ),
         "categoria": "exames",
-        "fonte": "data/raw/protocolos_sinteticos/faq_medicos_exames_urgentes.md",
+        "fonte": "FAQ interno — Solicitação de exames urgentes",
     },
     {
         "pergunta": "Posso reclassificar um exame de rotina para urgente?",
@@ -133,59 +144,61 @@ FAQ: list[PerguntaFrequente] = [
             "contagem da meta de tempo de liberação do resultado."
         ),
         "categoria": "exames",
-        "fonte": "data/raw/protocolos_sinteticos/faq_medicos_exames_urgentes.md",
+        "fonte": "FAQ interno — Solicitação de exames urgentes",
     },
     {
         "pergunta": "O assistente pode prescrever medicamento ou definir dosagem?",
         "resposta": (
             "Não. Ele sugere e apoia a decisão clínica, mas nunca prescreve de forma autônoma. "
-            "Toda resposta que mencione medicamento ou dosagem é sinalizada pelo guardrail e fica "
-            "retida na fila de validação até que um médico aprove, rejeite ou edite."
+            "Toda resposta que mencione medicamento ou dosagem recebe sinalização automática de "
+            "segurança e fica retida na fila de validação até que um médico aprove, rejeite ou "
+            "edite o texto."
         ),
         "categoria": "seguranca",
-        "fonte": "src/hospital_assistant/safety/guardrails.py",
+        "fonte": "Política de segurança do assistente",
     },
     {
         "pergunta": "O que acontece quando o assistente detecta sinal de emergência?",
         "resposta": (
-            "O nó de entrada do grafo sinaliza `emergencia_clinica`, o nó de alerta emite aviso "
-            "para a equipe médica e a resposta orienta atendimento presencial imediato. O evento "
-            "fica registrado na auditoria com a flag correspondente."
+            "O caso é sinalizado como emergência clínica, um alerta é emitido para a equipe "
+            "médica e a resposta orienta atendimento presencial imediato. O evento fica "
+            "registrado na auditoria com a sinalização correspondente."
         ),
         "categoria": "seguranca",
-        "fonte": "src/hospital_assistant/graph/nodes.py",
+        "fonte": "Fluxo de atendimento automatizado",
     },
     {
         "pergunta": "Como o assistente indica de onde veio a informação?",
         "resposta": (
-            "Cada resposta carrega os trechos recuperados do vector store com o arquivo de origem "
-            "e o score de similaridade de cosseno. Esses dados aparecem na fila de validação e "
-            "ficam gravados na auditoria — é o requisito de explicabilidade do desafio."
+            "Cada resposta carrega os trechos de protocolo que a fundamentaram, com a origem de "
+            "cada um e o grau de similaridade com a pergunta. Esses dados aparecem na fila de "
+            "validação e ficam gravados na auditoria, de modo que sempre é possível reconstruir "
+            "em que o assistente se baseou."
         ),
         "categoria": "fluxo",
-        "fonte": "src/hospital_assistant/rag/retriever.py",
+        "fonte": "Política de explicabilidade das respostas",
     },
     {
-        "pergunta": "Por que a resposta às vezes aparece marcada como [MOCK LLM]?",
+        "pergunta": "Por que a resposta às vezes indica que não veio do modelo treinado?",
         "resposta": (
-            "Quando não há adapter LoRA configurado (`HF_ADAPTER_REPO`) ou o ambiente não tem GPU "
-            "com bitsandbytes, o carregador degrada para um stand-in determinístico e registra "
-            "isso no log. O pipeline continua demonstrável, mas a sugestão não vem do modelo "
-            "fine-tunado."
+            "O modelo ajustado exige placa de vídeo dedicada. Quando o ambiente não a possui, o "
+            "sistema opera com um gerador de demonstração e informa isso na barra lateral e na "
+            "própria resposta. O fluxo, as fontes consultadas e o encaminhamento para validação "
+            "continuam reais — apenas o texto da sugestão não vem do modelo treinado."
         ),
         "categoria": "fluxo",
-        "fonte": "src/hospital_assistant/llm/model_loader.py",
+        "fonte": "Nota técnica — Modelo em uso",
     },
     {
         "pergunta": "O modelo fine-tunado já pode ser o padrão do assistente?",
         "resposta": (
             "Ainda não. O comparativo base vs. fine-tuned mostrou regressão de segurança: o "
             "modelo ajustado passou a responder com dose e posologia a perguntas que o modelo "
-            "base recusava. O corpus sintético precisa ser revisado antes. Detalhes na seção 3.3 "
-            "do relatório técnico."
+            "original recusava. A base de treinamento precisa ser revisada antes. Os detalhes "
+            "estão no relatório técnico do projeto."
         ),
         "categoria": "medicacao",
-        "fonte": "docs/relatorio_tecnico.md",
+        "fonte": "Relatório técnico — Avaliação do modelo",
     },
 ]
 
@@ -204,3 +217,38 @@ def filtrar_faq(categoria: str = "todas", busca: str = "") -> list[PerguntaFrequ
             if termo in item["pergunta"].lower() or termo in item["resposta"].lower()
         ]
     return itens
+
+
+# --- procedencia das respostas ----------------------------------------------
+
+PROTOCOLOS_DIR = RAW_DATA_DIR / "protocolos_sinteticos"
+
+
+@lru_cache(maxsize=64)
+def nome_da_fonte(origem: str) -> str:
+    """Titulo legivel de um documento da base, lido do proprio arquivo.
+
+    O RAG grava o caminho (`protocolos_sinteticos/sepse.md`), que nao diz nada a
+    quem revisa a resposta. Cada protocolo ja abre com um H1 escrito para leitura
+    humana, entao o titulo sai dali: manter um mapa de arquivo para titulo aqui
+    sairia de sincronia assim que alguem acrescentasse um protocolo novo.
+
+    Sem o arquivo em disco, formata o proprio nome — a tela degrada para um
+    rotulo feio, nunca para um erro.
+    """
+    caminho = PROTOCOLOS_DIR / Path(origem.replace("\\", "/")).name
+    try:
+        linhas = caminho.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        linhas = []
+
+    for linha in linhas:
+        texto = linha.strip()
+        if texto.startswith("#"):
+            titulo = texto.lstrip("#").strip()
+            if titulo:
+                return titulo
+        if texto:
+            break
+
+    return Path(origem).stem.replace("_", " ").capitalize()

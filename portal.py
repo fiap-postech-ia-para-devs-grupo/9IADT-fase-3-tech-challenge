@@ -8,8 +8,11 @@ módulo compartilhado. Rodar um não interfere no outro.
 
 O que muda em relação às telas originais:
 
-- **Navegação por módulos** em vez de três rádios soltos: Atendimento,
-  Conhecimento e Registros.
+- **Navegação agrupada** em vez de três rádios soltos: Assistente (assistente,
+  fila de validação e base de conhecimento), Cadastro e Auditoria. A base de
+  conhecimento fica sob Assistente por ser a base que fundamenta as respostas,
+  não um módulo paralelo. A rota vive em `st.query_params`, então o endereço é
+  compartilhável e o botão voltar funciona.
 - **Assistente em formato de conversa**, com histórico na sessão, em vez de
   um formulário que devolve JSON cru.
 - **Saídas formatadas**: as fontes do RAG viram cartões com score em barra, e
@@ -31,6 +34,7 @@ não alterar código de outra trilha:
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 import streamlit as st
@@ -46,11 +50,29 @@ st.set_page_config(page_title="Portal Clínico · Assistente Médico", layout="w
 
 SEM_PACIENTE = "Nenhum paciente selecionado"
 
-MODULOS: dict[str, list[str]] = {
-    "Atendimento": ["Assistente", "Fila de validação"],
-    "Conhecimento": ["Base de conhecimento"],
-    "Registros": ["Pacientes", "Auditoria"],
-}
+# Navegação. O identificador interno (`assistente`, `validacao`, …) é o que
+# circula em `st.query_params` e indexa `PAGINAS`; o label é só apresentação.
+# Separar os dois permite renomear o menu sem tocar em rota, callback ou estado
+# — foi a razão de o rótulo antigo ("Registros") poder virar "Cadastro" sem
+# efeito colateral.
+#
+# "Base de conhecimento" fica sob ASSISTENTE, e não numa seção própria: é a
+# base que fundamenta as respostas da IA, não um módulo paralelo.
+MENU: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Assistente", [
+        ("assistente", "Assistente"),
+        ("validacao", "Fila de validação"),
+        ("conhecimento", "Base de conhecimento"),
+    ]),
+    ("Cadastro", [
+        ("pacientes", "Pacientes"),
+    ]),
+    ("Auditoria", [
+        ("auditoria", "Auditoria"),
+    ]),
+]
+
+PAGINA_PADRAO = "assistente"
 
 
 # ---------------------------------------------------------------------------
@@ -124,66 +146,214 @@ def registrar_decisao(
 # ---------------------------------------------------------------------------
 
 
-def modulo_assistente() -> None:
-    st.markdown("### Assistente")
-    st.caption(
-        "As respostas são sugestões de apoio à decisão e seguem para revisão de um médico "
-        "antes de valer como conduta."
+LIMITE_PERGUNTA = 600
+SUGESTOES_POR_VEZ = 3
+
+
+def sugestoes(semente: int) -> list[dict[str, Any]]:
+    """Sorteia perguntas da base de conhecimento para oferecer como atalho.
+
+    As sugestões saem da mesma base que fundamenta as respostas, e não de uma
+    lista à parte: garante que toda sugestão tenha protocolo indexado por trás,
+    e faz a base crescer junto com o assistente — acrescentar um protocolo
+    passa a alimentar as duas telas de uma vez.
+
+    Só entram categorias clínicas: a base também explica o funcionamento do
+    assistente, e essas entradas pertencem à tela de conhecimento, não ao
+    composer de quem está atendendo.
+
+    O sorteio usa semente explícita para que a lista só mude quando o usuário
+    pedir, e não a cada rerun do Streamlit.
+    """
+    itens = [item for item in rotulos.FAQ if item["categoria"] in rotulos.CATEGORIAS_CLINICAS]
+    random.Random(semente).shuffle(itens)
+    return itens[:SUGESTOES_POR_VEZ]
+
+
+def _cabecalho_paciente(paciente: dict[str, Any]) -> None:
+    """Identificação e indicadores do paciente em atendimento.
+
+    Os dados vêm de `get_patient_history` e não do resumo do seletor:
+    `list_patients` devolve apenas id, nome e prontuário — deliberadamente, para
+    não expor dado clínico a quem só precisa montar um dropdown.
+    """
+    historico = get_patient_history(paciente["id"])
+    pendentes_exames = [e for e in historico["exames"] if e["status"] == "pendente"]
+    alertas_abertos = [a for a in historico["alertas"] if not a["resolvido"]]
+
+    st.markdown(
+        f"**{historico['nome']}** &nbsp;·&nbsp; prontuário `{historico['prontuario']}`"
+        f" &nbsp;·&nbsp; nascimento "
+        f"{ui.formatar_data_hora(historico['data_nascimento']).split(' ')[0]}",
+        unsafe_allow_html=True,
+    )
+    indicadores = st.columns(4)
+    indicadores[0].markdown(ui.metrica(len(historico["exames"]), "Exames"), unsafe_allow_html=True)
+    indicadores[1].markdown(
+        ui.metrica(len(pendentes_exames), "Exames pendentes"), unsafe_allow_html=True
+    )
+    indicadores[2].markdown(
+        ui.metrica(len(historico["medicacoes"]), "Medicações"), unsafe_allow_html=True
+    )
+    indicadores[3].markdown(
+        ui.metrica(len(alertas_abertos), "Alertas abertos"), unsafe_allow_html=True
     )
 
+
+def _enviar(pergunta: str, paciente_id: str | None) -> None:
+    """Roda o grafo e acrescenta o turno ao histórico da conversa."""
     historico: list[dict[str, Any]] = st.session_state.setdefault("conversa", [])
-
-    with st.container(border=True):
-        pacientes = list_patients()
-        opcoes = {SEM_PACIENTE: None} | {
-            f"{p['nome']} ({p['prontuario']})": p["id"] for p in pacientes
-        }
-        escolha = st.selectbox("Paciente em atendimento", list(opcoes), key="paciente_conversa")
-        paciente_id = opcoes[escolha]
-
-        if paciente_id:
-            historico_paciente = get_patient_history(paciente_id)
-            colunas = st.columns(3)
-            colunas[0].markdown(
-                ui.metrica(len(historico_paciente["exames"]), "Exames"), unsafe_allow_html=True
-            )
-            colunas[1].markdown(
-                ui.metrica(len(historico_paciente["medicacoes"]), "Medicações"),
-                unsafe_allow_html=True,
-            )
-            colunas[2].markdown(
-                ui.metrica(len(historico_paciente["alertas"]), "Alertas"), unsafe_allow_html=True
-            )
-
-    for turno in historico:
-        with st.chat_message(turno["papel"]):
-            st.markdown(turno["texto"])
-            if turno.get("fontes"):
-                with st.expander(f"Fontes consultadas ({len(turno['fontes'])})"):
-                    for posicao, fonte in enumerate(turno["fontes"], start=1):
-                        st.markdown(ui.cartao_fonte(fonte, posicao), unsafe_allow_html=True)
-
-    pergunta = st.chat_input("Descreva o caso ou faça uma pergunta clínica")
-    if not pergunta:
-        return
-
     historico.append({"papel": "user", "texto": pergunta, "fontes": []})
 
     with st.spinner("Consultando protocolos e prontuário…"):
         resultado = run(pergunta, paciente_id)
 
-    partes = [resultado["sugestao_llm"]]
+    texto = resultado["sugestao_llm"]
     if resultado.get("alerta"):
-        partes.append(f"\n\n**Alerta emitido para a equipe:** {resultado['alerta']}")
+        texto += f"\n\n> **Alerta emitido para a equipe:** {resultado['alerta']}"
 
     historico.append(
-        {
-            "papel": "assistant",
-            "texto": "\n\n".join(partes),
-            "fontes": resultado.get("contexto_rag", []),
-        }
+        {"papel": "assistant", "texto": texto, "fontes": resultado.get("contexto_rag", [])}
     )
-    st.rerun()
+
+
+def _render_conversa(historico: list[dict[str, Any]]) -> None:
+    """Desenha o histórico como conversa.
+
+    As fontes ficam recolhidas num expander por resposta: são a justificativa da
+    sugestão, consultadas quando o médico quer conferir a procedência, e abertas
+    por padrão empurrariam a próxima pergunta para fora da tela.
+    """
+    for turno in historico:
+        with st.chat_message(turno["papel"]):
+            st.markdown(turno["texto"])
+            fontes = turno.get("fontes") or []
+            if fontes:
+                with st.expander(f"Base consultada ({len(fontes)} trechos)"):
+                    for posicao, fonte in enumerate(fontes, start=1):
+                        st.markdown(ui.cartao_fonte(fonte, posicao), unsafe_allow_html=True)
+
+
+def _chips_sugestao() -> None:
+    """Atalhos para a base de conhecimento, logo abaixo da caixa de pergunta.
+
+    O clique **preenche** o composer em vez de enviar: a sugestão é ponto de
+    partida, e o médico costuma querer completar a pergunta com o contexto do
+    caso antes de mandar.
+
+    Larguras proporcionais ao rótulo mantêm os chips agrupados à esquerda:
+    colunas iguais espalhariam as pílulas por toda a largura e elas deixariam de
+    ser lidas como um conjunto.
+    """
+    semente = st.session_state.setdefault("semente_sugestoes", 0)
+    escolhidas = sugestoes(semente)
+
+    # Três chips, e não quatro: com `nowrap` a pílula não encolhe, e a quarta
+    # espremia o "Gerar outras" para fora da borda. As larguras seguem o
+    # tamanho do rótulo para os chips ficarem agrupados à esquerda.
+    rotulos_chip = [ui.resumir_texto(item["pergunta"], limite=32) for item in escolhidas]
+    larguras = [max(1.0, len(texto) / 4.2) for texto in rotulos_chip]
+
+    # O container com `key` existe só para o CSS conseguir apertar o `gap` entre
+    # as colunas: sem ele os chips ficam com o respiro padrão do Streamlit e
+    # deixam de ser lidos como um conjunto.
+    with st.container(key="linha_sugestoes"):
+        colunas = st.columns([*larguras, 3.4])
+
+        for posicao, (item, rotulo) in enumerate(zip(escolhidas, rotulos_chip, strict=True)):
+            # `help` carrega a pergunta inteira: o chip é truncado por desenho,
+            # mas o médico precisa poder conferir o texto antes de enviar.
+            if colunas[posicao].button(
+                rotulo,
+                key=f"sugestao-{posicao}",
+                help=item["pergunta"],
+                use_container_width=True,
+            ):
+                # O texto não pode ser escrito direto na key do widget: ele já
+                # foi instanciado nesta rodada e o Streamlit recusa a alteração.
+                # Guardar num rascunho e trocar a key recria o campo já com o
+                # conteúdo — o mesmo mecanismo que limpa o composer no envio.
+                st.session_state["rascunho_pergunta"] = item["pergunta"]
+                st.session_state["ciclo_composer"] = st.session_state["ciclo_composer"] + 1
+                st.rerun()
+
+        if colunas[-1].button(
+            "🎲 Gerar outras", key="regerar_sugestoes", use_container_width=True
+        ):
+            st.session_state["semente_sugestoes"] = semente + 1
+            st.rerun()
+
+
+def modulo_assistente() -> None:
+    # `st.container(key=…)` em vez de uma `div` aberta por `st.markdown`: aquela
+    # é fechada pelo parser no fim do próprio container de markdown, então os
+    # widgets seguintes viram irmãos dela e nenhum seletor descendente casa —
+    # era por isso que a coluna central e o estilo dos chips não pegavam. Com a
+    # key, o Streamlit emite `st-key-bloco_assistente` no wrapper de verdade.
+    with st.container(key="bloco_assistente"):
+        _assistente_conteudo()
+
+
+def _assistente_conteudo() -> None:
+    historico: list[dict[str, Any]] = st.session_state.setdefault("conversa", [])
+
+    pacientes = list_patients()
+    por_rotulo = {SEM_PACIENTE: None} | {
+        f"{p['nome']} ({p['prontuario']})": p["id"] for p in pacientes
+    }
+    if historico:
+        _render_conversa(historico)
+    else:
+        st.markdown(
+            '<div class="saudacao"><h2>Como posso ajudar no atendimento?</h2>'
+            "<p>Pergunte sobre conduta clínica, protocolo institucional ou exames. "
+            "Toda resposta passa por revisão médica antes de valer como conduta.</p></div>",
+            unsafe_allow_html=True,
+        )
+
+    # Sem `st.form`: o seletor de paciente vive dentro do composer e precisa
+    # atualizar o cabeçalho clínico assim que muda. Num form nada é reavaliado
+    # até o envio, e o médico escolheria o paciente sem ver os exames pendentes.
+    # A limpeza do campo, que o form daria de graça, vem do `ciclo` na key.
+    ciclo = st.session_state.setdefault("ciclo_composer", 0)
+    pergunta = st.text_area(
+        "Pergunta",
+        value=st.session_state.get("rascunho_pergunta", ""),
+        height=150,
+        max_chars=LIMITE_PERGUNTA,
+        placeholder="Descreva o caso ou pergunte sobre um protocolo…",
+        label_visibility="collapsed",
+        key=f"pergunta_{ciclo}",
+    )
+
+    if not historico:
+        _chips_sugestao()
+
+    escolha = st.selectbox("Paciente em atendimento", list(por_rotulo), key="paciente_conversa")
+    paciente_id = por_rotulo[escolha]
+
+    if paciente_id:
+        selecionado = next(p for p in pacientes if p["id"] == paciente_id)
+        with st.container(border=True):
+            _cabecalho_paciente(selecionado)
+
+    # Envio na última linha, alinhado à direita: é a ação que fecha o composer,
+    # depois de pergunta, atalhos e contexto do paciente já estarem definidos.
+    acoes = st.columns([4, 1])
+    enviar = acoes[1].button(
+        "Enviar", key="enviar_pergunta", type="primary", use_container_width=True
+    )
+
+    if enviar and pergunta.strip():
+        _enviar(pergunta.strip(), paciente_id)
+        st.session_state["rascunho_pergunta"] = ""
+        st.session_state["ciclo_composer"] = ciclo + 1
+        st.rerun()
+
+    if historico and st.button("Nova conversa", key="limpar_conversa"):
+        st.session_state["conversa"] = []
+        st.rerun()
+
 
 
 # ---------------------------------------------------------------------------
@@ -209,17 +379,29 @@ def modulo_validacao() -> None:
 
     st.markdown(f"**{len(fila)}** {'resposta aguardando' if len(fila) == 1 else 'respostas aguardando'} revisão.")
 
+    # Índice de pacientes: a trilha grava só o id, e "Paciente: 1" não diz nada
+    # a quem revisa. A resolução acontece aqui, uma vez, e não a cada linha.
+    pacientes = {p["id"]: p for p in list_patients()}
+
     for linha in fila:
         with st.expander(ui.resumir_texto(linha["pergunta"], limite=110)):
+            paciente = pacientes.get(linha["paciente_id"] or "")
             cabecalho = st.columns([3, 1])
-            cabecalho[0].markdown(
-                f"**Paciente:** {linha['paciente_id'] or '—'} &nbsp;·&nbsp; "
-                f"**Registrado em:** {ui.formatar_data_hora(linha['timestamp'])}",
-                unsafe_allow_html=True,
-            )
+            if paciente:
+                # Só nome e prontuário: `list_patients` não traz data de
+                # nascimento, e buscar o histórico completo de cada linha da
+                # fila seria uma consulta por item para exibir um campo.
+                cabecalho[0].markdown(
+                    f"**{paciente['nome']}** &nbsp;·&nbsp; prontuário `{paciente['prontuario']}`",
+                    unsafe_allow_html=True,
+                )
+            else:
+                cabecalho[0].markdown("**Consulta sem paciente vinculado**")
             cabecalho[1].markdown(ui.badge_status(linha["status"]), unsafe_allow_html=True)
+            st.caption(f"Registrado em {ui.formatar_data_hora(linha['timestamp'])}")
 
-            st.markdown("**Resposta sugerida**")
+            st.divider()
+            st.markdown("##### Resposta sugerida")
             st.markdown(linha["resposta_llm"])
 
             if linha["flags_seguranca"]:
@@ -238,28 +420,52 @@ def modulo_validacao() -> None:
                 st.caption("Nenhuma fonte recuperada para esta pergunta.")
 
             editando = st.session_state.get(f"editar_portal_{linha['id']}", False)
-            acoes = st.columns(3)
 
-            if acoes[0].button("Aprovar", key=f"portal-aprovar-{linha['id']}", type="primary"):
-                registrar_decisao(linha, "aprovado", aprovador or None)
-                st.rerun()
-            if acoes[1].button("Rejeitar", key=f"portal-rejeitar-{linha['id']}"):
-                registrar_decisao(linha, "rejeitado", aprovador or None)
-                st.rerun()
-            if acoes[2].button("Editar", key=f"portal-editar-{linha['id']}"):
-                st.session_state[f"editar_portal_{linha['id']}"] = True
-                st.rerun()
-
+            st.divider()
             if editando:
                 texto = st.text_area(
-                    "Resposta corrigida",
+                    "Ajuste a resposta antes de aprovar",
                     value=linha["resposta_llm"],
                     key=f"portal-edicao-{linha['id']}",
-                    height=200,
+                    height=220,
                 )
-                if st.button("Salvar e aprovar", key=f"portal-salvar-{linha['id']}", type="primary"):
+                confirmacao = st.columns([1, 1, 3])
+                if confirmacao[0].button(
+                    "Salvar e aprovar",
+                    key=f"portal-salvar-{linha['id']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
                     st.session_state[f"editar_portal_{linha['id']}"] = False
                     registrar_decisao(linha, "aprovado", aprovador or None, resposta_editada=texto)
+                    st.rerun()
+                if confirmacao[1].button(
+                    "Cancelar", key=f"portal-cancelar-{linha['id']}", use_container_width=True
+                ):
+                    st.session_state[f"editar_portal_{linha['id']}"] = False
+                    st.rerun()
+            else:
+                # Larguras desiguais com folga à direita: as três ações não
+                # devem ocupar a linha inteira nem ficar do mesmo peso visual —
+                # aprovar é a ação principal, editar é a de escape.
+                acoes = st.columns([1, 1, 1, 2])
+                if acoes[0].button(
+                    "Aprovar",
+                    key=f"portal-aprovar-{linha['id']}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    registrar_decisao(linha, "aprovado", aprovador or None)
+                    st.rerun()
+                if acoes[1].button(
+                    "Editar", key=f"portal-editar-{linha['id']}", use_container_width=True
+                ):
+                    st.session_state[f"editar_portal_{linha['id']}"] = True
+                    st.rerun()
+                if acoes[2].button(
+                    "Rejeitar", key=f"portal-rejeitar-{linha['id']}", use_container_width=True
+                ):
+                    registrar_decisao(linha, "rejeitado", aprovador or None)
                     st.rerun()
 
 
@@ -434,41 +640,101 @@ def modulo_auditoria() -> None:
 # ---------------------------------------------------------------------------
 
 PAGINAS = {
-    "Assistente": modulo_assistente,
-    "Fila de validação": modulo_validacao,
-    "Base de conhecimento": modulo_conhecimento,
-    "Pacientes": modulo_pacientes,
-    "Auditoria": modulo_auditoria,
+    "assistente": modulo_assistente,
+    "validacao": modulo_validacao,
+    "conhecimento": modulo_conhecimento,
+    "pacientes": modulo_pacientes,
+    "auditoria": modulo_auditoria,
 }
+
+
+def pagina_atual() -> str:
+    """Identificador da página ativa, lido da URL.
+
+    A rota vive em `st.query_params` (e não só em `session_state`) para que o
+    endereço seja compartilhável e o botão voltar do navegador funcione. Um
+    identificador desconhecido — link antigo, digitação — cai no padrão em vez
+    de estourar `KeyError`.
+    """
+    pedido = st.query_params.get("p", PAGINA_PADRAO)
+    return pedido if pedido in PAGINAS else PAGINA_PADRAO
+
+
+def _item_menu(chave: str, label: str, ativo: bool, contagem: int = 0) -> str:
+    """Item de navegação como âncora estilizada.
+
+    Âncora e não `st.button` porque o botão do Streamlit não aceita indicador
+    lateral, ícone inline nem estado ativo sem herdar a aparência de botão —
+    e a navegação precisa parecer menu, não formulário. O `target="_self"`
+    evita que o clique abra uma aba nova.
+    """
+    classes = "nav-item ativo" if ativo else "nav-item"
+    selo = f'<span class="nav-contagem">{contagem}</span>' if contagem else ""
+    return (
+        f'<a class="{classes}" href="?p={chave}" target="_self">'
+        f"{tema.icone(chave)}<span>{label}</span>{selo}</a>"
+    )
+
+
+def barra_lateral(pendencias: int) -> None:
+    """Marca, navegação agrupada e status operacional."""
+    atual = pagina_atual()
+    st.markdown(tema.cabecalho_marca(), unsafe_allow_html=True)
+
+    for grupo, itens in MENU:
+        st.markdown(f'<div class="grupo-menu">{grupo}</div>', unsafe_allow_html=True)
+        st.markdown(
+            "".join(
+                _item_menu(
+                    chave,
+                    label,
+                    ativo=chave == atual,
+                    contagem=pendencias if chave == "validacao" else 0,
+                )
+                for chave, label in itens
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # O rótulo do modelo é escrito para quem opera a tela, não para quem
+    # mantém o código: "MockLLM" é nome de classe. O estado é o mesmo, a
+    # leitura é que muda — e a distinção entre demonstração e modelo treinado
+    # continua explícita, que é o que importa para não demonstrar o stand-in
+    # achando que é o modelo.
+    em_demonstracao = "Mock" in descrever_backend(get_llm())
+    if em_demonstracao:
+        cor_ia, fundo_ia, rotulo_ia = tema.PENDENTE, tema.PENDENTE_FUNDO, "Modo demonstração"
+        modelo = "sem placa de vídeo dedicada"
+    else:
+        cor_ia, fundo_ia, rotulo_ia = tema.APROVADO, tema.APROVADO_FUNDO, "IA operacional"
+        modelo = "Llama 3.2 · ajustado"
+
+    chips = [
+        f'<span class="chip" style="color:{cor_ia};background:{fundo_ia}">'
+        f'<span class="badge" style="padding:0"></span>{rotulo_ia}</span>',
+        f'<span class="chip-modelo">Modelo: {modelo}</span>',
+    ]
+    if pendencias:
+        rotulo = "1 aguardando validação" if pendencias == 1 else f"{pendencias} aguardando validação"
+        chips.insert(
+            1,
+            f'<span class="chip" style="color:{tema.PENDENTE};background:{tema.PENDENTE_FUNDO}">'
+            f"{rotulo}</span>",
+        )
+
+    st.markdown(
+        f'<div class="rodape-status">{"".join(chips)}</div>', unsafe_allow_html=True
+    )
 
 
 def main() -> None:
     st.markdown(tema.css(), unsafe_allow_html=True)
 
+    pendencias = len(pendentes(carregar_registros()))
     with st.sidebar:
-        st.markdown(tema.cabecalho_marca(), unsafe_allow_html=True)
+        barra_lateral(pendencias)
 
-        atual = st.session_state.get("modulo_atual", "Assistente")
-        for grupo, paginas in MODULOS.items():
-            st.markdown(f'<div class="grupo-menu">{grupo}</div>', unsafe_allow_html=True)
-            for nome in paginas:
-                marcador = "primary" if nome == atual else "secondary"
-                if st.button(nome, key=f"nav-{nome}", use_container_width=True, type=marcador):
-                    st.session_state["modulo_atual"] = nome
-                    st.rerun()
-
-        st.markdown("---")
-        pendencias = len(pendentes(carregar_registros()))
-        if pendencias:
-            st.markdown(
-                ui.badge_status("pendente").replace(
-                    "Pendente de validação", f"{pendencias} aguardando validação"
-                ),
-                unsafe_allow_html=True,
-            )
-        st.caption(f"Modelo: {descrever_backend(get_llm())}")
-
-    PAGINAS[st.session_state.get("modulo_atual", "Assistente")]()
+    PAGINAS[pagina_atual()]()
 
 
 if __name__ == "__main__":
