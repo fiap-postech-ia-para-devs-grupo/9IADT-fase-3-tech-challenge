@@ -1478,8 +1478,12 @@ def _item_menu(chave: str, label: str, ativo: bool, contagem: int = 0) -> str:
     """
     classes = "nav-item ativo" if ativo else "nav-item"
     selo = f'<span class="nav-contagem">{contagem}</span>' if contagem else ""
+
+    # A âncora reescreve a query string inteira, e a marca de acesso vive nela.
+    # Sem carregá-la adiante, trocar de tela derrubava a autorização e a senha
+    # era pedida de novo a cada clique no menu.
     return (
-        f'<a class="{classes}" href="?p={chave}" target="_self">'
+        f'<a class="{classes}" href="?p={chave}{acesso.sufixo_url()}" target="_self">'
         f"{tema.icone(chave)}<span>{label}</span>{selo}</a>"
     )
 

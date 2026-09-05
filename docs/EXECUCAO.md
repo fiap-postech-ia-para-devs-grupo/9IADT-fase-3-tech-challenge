@@ -55,6 +55,42 @@ não-gated.
 A primeira pergunta leva alguns minutos — baixa 6,4 GB de pesos e monta o modelo
 na GPU. As seguintes saem em segundos.
 
+### Quando o portal cair
+
+A máquina virtual do Colab é reciclada por inatividade e leva junto o clone, as
+dependências, os dados, o servidor e o túnel. Aconteceu três vezes em
+2026-09-05. **Nada dentro dela se reergue sozinho** — a VM deixou de existir, e
+a recuperação vem sempre de fora.
+
+**Como reconhecer.** A URL do túnel para de responder (erro de conexão, não
+404). Se o notebook ainda estiver aberto, o terminal mostra um identificador
+novo na barra de baixo e o histórico vazio.
+
+**Como remontar**, do celular ou de qualquer navegador:
+
+1. Abra o notebook no Colab.
+2. `Ambiente de execução > Alterar o tipo de ambiente > T4 GPU`.
+3. Rode a **primeira célula da seção 0**. Ela é idempotente e leva de 1 a 4
+   minutos, conforme a VM esteja quente ou zerada.
+4. A URL nova aparece no fim da saída, junto da senha.
+
+**A URL muda a cada remontagem.** O túnel gratuito do Cloudflare sorteia um
+subdomínio novo a cada execução — não há como fixá-lo sem conta própria. Se
+alguém guardou o endereço anterior, ele não volta.
+
+**Se o terminal congelar** e a URL não aparecer, ela está gravada em disco:
+
+```bash
+grep -o 'https://.*trycloudflare.com' /content/tunel.log | head -1
+```
+
+**Endereço estável** exigiria sair do Colab: ngrok com domínio estático (conta
+gratuita, um domínio por conta) ou hospedar em outro lugar. Vale notar que
+endereço fixo resolve o link, não a queda: o serviço continua caindo junto com
+a VM. Para disponibilidade de verdade, o caminho é um host que não recicla —
+Hugging Face Spaces em CPU, por exemplo, onde o modelo roda pelo caminho
+`PERMITIR_CPU` (respostas em minutos, mas o Space acorda sozinho).
+
 ### Atualizando a sessão depois de mexer no código
 
 ```bash

@@ -60,3 +60,20 @@ def test_marca_e_estavel_para_a_mesma_senha(monkeypatch) -> None:
     monkeypatch.setenv(acesso.VARIAVEL, "FIAP2026")
 
     assert acesso._marca() == acesso._marca()
+
+
+def test_sufixo_vazio_sem_senha(monkeypatch) -> None:
+    """Sem trava, o endereço não deve ganhar parâmetro nenhum."""
+    monkeypatch.delenv(acesso.VARIAVEL, raising=False)
+
+    assert acesso.sufixo_url() == ""
+
+
+def test_sufixo_carrega_a_marca(monkeypatch) -> None:
+    """Sem isto, clicar no menu reescrevia a query string e pedia a senha de novo."""
+    monkeypatch.setenv(acesso.VARIAVEL, "FIAP2026")
+
+    sufixo = acesso.sufixo_url()
+
+    assert sufixo.startswith(f"&{acesso.PARAMETRO}=")
+    assert acesso._marca() in sufixo

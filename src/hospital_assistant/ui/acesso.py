@@ -89,3 +89,18 @@ def liberado() -> bool:
                 st.error("Senha incorreta.")
 
     return False
+
+
+def sufixo_url() -> str:
+    """Trecho a anexar em links internos para não perder a autorização.
+
+    A navegação do portal é feita de âncoras que reescrevem a query string
+    inteira. Como a marca de acesso vive ali, um link que não a carrega adiante
+    desloga o usuário a cada troca de tela.
+
+    Devolve string vazia quando não há senha configurada, para o endereço não
+    ganhar lixo em ambiente sem trava.
+    """
+    if not exigida():
+        return ""
+    return f"&{PARAMETRO}={_marca()}"
