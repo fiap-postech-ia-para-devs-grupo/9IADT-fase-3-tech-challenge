@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -217,7 +218,16 @@ class FineTunedLLM:
     em_cpu: bool = False
     _pipeline: Any = field(default=None, init=False, repr=False)
 
-    def _carregar(self) -> Any:
+    def _carregar(self, progresso: Callable[[float, str], None] | None = None) -> Any:
+        """Monta tokenizer, modelo base e adapter.
+
+        `progresso` recebe (fração concluída, o que está acontecendo). As fases
+        são grosseiras porque são as que de fato existem — inventar frações
+        intermediárias produziria uma barra que anda sozinha sem nada por trás,
+        que é pior que nenhuma: ela mente sobre quanto falta.
+        """
+        avisar = progresso or (lambda _fracao, _rotulo: None)
+
         if self._pipeline is not None:
             return self._pipeline
 
@@ -225,6 +235,7 @@ class FineTunedLLM:
         from peft import PeftModel
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        avisar(0.05, "Resolvendo o modelo base")
         base = self.modelo_base or resolve_base_model()
         self.modelo_base = base
         logger.info(
@@ -234,10 +245,12 @@ class FineTunedLLM:
             "CPU (sem quantização)" if self.em_cpu else "GPU (4-bit NF4)",
         )
 
+        avisar(0.15, "Carregando o tokenizador")
         tokenizer = AutoTokenizer.from_pretrained(base)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
+        avisar(0.30, "Baixando os pesos do modelo (6,4 GB na primeira vez)")
         if self.em_cpu:
             # Sem `quantization_config`: o bitsandbytes precisa de CUDA para
             # quantizar. bfloat16 em vez de float32 corta o consumo de RAM pela
@@ -271,13 +284,15 @@ class FineTunedLLM:
                 ),
                 device_map="auto",
             )
+        avisar(0.85, "Aplicando o adapter treinado")
         modelo = PeftModel.from_pretrained(modelo_base, self.adapter)
         modelo.eval()
+        avisar(1.0, "Modelo pronto")
 
         self._pipeline = (tokenizer, modelo)
         return self._pipeline
 
-    def aquecer(self) -> None:
+    def aquecer(self, progresso: Callable[[float, str], None] | None = None) -> None:
         """Carrega os pesos agora, em vez de na primeira pergunta.
 
         `get_llm()` só decide qual backend usar; `_carregar` é preguiçoso. Sem

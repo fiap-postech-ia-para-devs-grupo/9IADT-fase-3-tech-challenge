@@ -355,3 +355,27 @@ def badge_alertas(alertas: list[dict[str, Any]]) -> str:
         f'<span class="badge" style="color:{cor};background:{fundo}">'
         f"{html.escape(rotulo)} · {html.escape(pior)}</span>"
     )
+
+
+def anel_progresso(fracao: float, rotulo: str = "") -> str:
+    """Anel de carregamento preenchido até `fracao`, com o que está acontecendo.
+
+    Determinado, e não giratório: as fases do carregamento do modelo são
+    conhecidas, e mostrar quanto falta é diferente de mostrar que algo acontece.
+    O rótulo vai junto porque "30%" sozinho não explica uma espera de minutos —
+    "baixando 6,4 GB" explica.
+
+    O preenchimento é um `conic-gradient`, que evita SVG e JavaScript: a página
+    é remontada a cada atualização do Streamlit, e um elemento sem estado
+    próprio sobrevive a isso sem piscar.
+    """
+    graus = max(0.0, min(1.0, fracao)) * 360
+    return f"""
+<div class="anel-carregamento">
+  <div class="anel" style="background:
+      conic-gradient({tema.PRIMARIA} {graus:.0f}deg, {tema.PRIMARIA_CLARA} {graus:.0f}deg)">
+    <div class="anel-centro">{int(max(0.0, min(1.0, fracao)) * 100)}%</div>
+  </div>
+  <div class="anel-rotulo">{html.escape(rotulo)}</div>
+</div>
+"""

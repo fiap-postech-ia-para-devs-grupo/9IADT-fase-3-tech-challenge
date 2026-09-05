@@ -308,3 +308,23 @@ def test_fonte_relevante_continua_aparecendo() -> None:
 
     assert len(ui.fontes_relevantes(forte)) == 1
     assert "Suspeita de sepse" in ui.formatar_fontes(forte)
+
+
+# --- anel de progresso ------------------------------------------------------
+
+
+def test_anel_reflete_a_fracao_em_graus_e_percentual() -> None:
+    html_anel = ui.anel_progresso(0.25, "Carregando")
+
+    assert "25%" in html_anel
+    assert "90deg" in html_anel
+
+
+def test_anel_satura_fora_do_intervalo() -> None:
+    """Uma fase que reporte mais que 1.0 não pode desenhar mais que a volta."""
+    assert "100%" in ui.anel_progresso(1.8, "")
+    assert "0%" in ui.anel_progresso(-0.5, "")
+
+
+def test_rotulo_do_anel_e_escapado() -> None:
+    assert "<script>" not in ui.anel_progresso(0.5, "<script>alert(1)</script>")

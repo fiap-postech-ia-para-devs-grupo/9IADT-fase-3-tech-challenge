@@ -1482,13 +1482,19 @@ def main() -> None:
         # O spinner não é enfeite: a primeira carga baixa os pesos e monta o
         # modelo na GPU, e sem ele a tela fica em branco por minutos sem dizer
         # se está trabalhando ou travada.
-        with st.spinner("Carregando o modelo clínico… a primeira vez leva alguns minutos."):
-            backend = get_llm()
-            # Aquecer aqui, e não deixar para a primeira pergunta: `get_llm` só
-            # escolhe o backend, e os pesos subiam dentro da consulta — o médico
-            # esperava minutos achando que a pergunta dele é que era lenta.
-            if hasattr(backend, "aquecer"):
-                backend.aquecer()
+        # Aquecer aqui, e não deixar para a primeira pergunta: `get_llm` só
+        # escolhe o backend, e os pesos subiam dentro da consulta — o médico
+        # esperava minutos achando que a pergunta dele é que era lenta.
+        backend = get_llm()
+        if hasattr(backend, "aquecer"):
+            painel = st.empty()
+
+            def mostrar(fracao: float, rotulo: str) -> None:
+                painel.markdown(ui.anel_progresso(fracao, rotulo), unsafe_allow_html=True)
+
+            mostrar(0.0, "Preparando o modelo clínico")
+            backend.aquecer(mostrar)
+            painel.empty()
     except AmbienteSemModelo as erro:
         st.error(str(erro), icon="⛔")
         st.caption(

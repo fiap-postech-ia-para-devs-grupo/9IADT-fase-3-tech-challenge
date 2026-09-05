@@ -330,6 +330,34 @@ def css() -> str:
     }}
   }}
 
+  /* Anel determinado, usado no carregamento do modelo, onde as fases são
+     conhecidas. O spinner giratório acima continua para as esperas cuja
+     duração não dá para prever. */
+  .anel-carregamento {{
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1rem;
+    background: {SUPERFICIE}d9;
+    backdrop-filter: blur(2px);
+  }}
+  .anel {{
+    width: 104px; height: 104px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .3s ease;
+  }}
+  .anel-centro {{
+    width: 82px; height: 82px; border-radius: 50%;
+    background: {SUPERFICIE};
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; font-weight: 600; color: {PRIMARIA_ESCURA};
+    font-variant-numeric: tabular-nums;
+  }}
+  .anel-rotulo {{
+    font-size: .88rem; color: {TEXTO_SUAVE}; max-width: 24rem; text-align: center;
+  }}
+
   div[data-testid="stDataFrame"] {{ border-radius: 6px; overflow-x: auto; }}
   .stButton > button {{ border-radius: 6px; font-weight: 500; }}
 
