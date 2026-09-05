@@ -37,3 +37,26 @@ def test_comparacao_e_de_tempo_constante() -> None:
     fonte = inspect.getsource(acesso.liberado)
 
     assert "compare_digest" in fonte
+
+
+def test_marca_nao_expoe_a_senha(monkeypatch) -> None:
+    """A marca vai para a URL, e URL vaza em histórico e log de servidor."""
+    monkeypatch.setenv(acesso.VARIAVEL, "FIAP2026")
+
+    assert "FIAP2026" not in acesso._marca()
+
+
+def test_marca_muda_com_a_senha(monkeypatch) -> None:
+    """Trocar a senha precisa invalidar os links já distribuídos."""
+    monkeypatch.setenv(acesso.VARIAVEL, "uma")
+    primeira = acesso._marca()
+    monkeypatch.setenv(acesso.VARIAVEL, "outra")
+
+    assert acesso._marca() != primeira
+
+
+def test_marca_e_estavel_para_a_mesma_senha(monkeypatch) -> None:
+    """Se mudasse a cada chamada, o link salvo no celular pararia de valer."""
+    monkeypatch.setenv(acesso.VARIAVEL, "FIAP2026")
+
+    assert acesso._marca() == acesso._marca()

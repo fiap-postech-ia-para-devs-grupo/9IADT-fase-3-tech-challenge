@@ -18,6 +18,7 @@ só atrapalharia quem desenvolve.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import os
 
@@ -25,6 +26,28 @@ import streamlit as st
 
 VARIAVEL = "SENHA_PORTAL"
 CHAVE_SESSAO = "acesso_liberado"
+PARAMETRO = "acesso"
+
+
+def _marca() -> str:
+    """Marca derivada da senha, guardada na URL para o acesso durar.
+
+    `session_state` morre a cada recarregamento de página, e num celular isso
+    acontece o tempo todo — a senha era pedida de novo a cada volta. A marca no
+    endereço sobrevive ao reload e ao compartilhamento do link entre abas.
+
+    **É a senha em outra forma, não uma proteção adicional.** Quem receber a URL
+    com a marca entra sem digitar nada. Isso não muda o modelo de segurança
+    daqui, que já era "quem tem o link e a senha entra": a senha é única e
+    compartilhada, e quem a tem passa o acesso adiante de um jeito ou de outro.
+    O que muda é que o link fica perigoso de colar em lugar público — mais que
+    o endereço sozinho.
+
+    A senha em si não vai para a URL: o que vai é um resumo dela, para não
+    aparecer em histórico de navegador e log de servidor.
+    """
+    senha = os.environ.get(VARIAVEL, "").strip()
+    return hashlib.sha256(f"portal-clinico:{senha}".encode()).hexdigest()[:32]
 
 
 def exigida() -> bool:
@@ -41,6 +64,9 @@ def liberado() -> bool:
         return True
     if st.session_state.get(CHAVE_SESSAO):
         return True
+    if hmac.compare_digest(st.query_params.get(PARAMETRO, ""), _marca()):
+        st.session_state[CHAVE_SESSAO] = True
+        return True
 
     st.markdown("### Portal Clínico")
     st.caption(
@@ -55,6 +81,9 @@ def liberado() -> bool:
             # vaza quantos caracteres estavam certos.
             if hmac.compare_digest(tentativa, os.environ[VARIAVEL].strip()):
                 st.session_state[CHAVE_SESSAO] = True
+                # Na URL também: sem isto, recarregar a página pede a senha de
+                # novo, que é o que acontecia no celular a cada volta.
+                st.query_params[PARAMETRO] = _marca()
                 st.rerun()
             else:
                 st.error("Senha incorreta.")
