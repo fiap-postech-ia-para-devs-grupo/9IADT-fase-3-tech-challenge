@@ -40,14 +40,47 @@ if ! command -v cloudflared >/dev/null 2>&1; then
 fi
 
 echo "==> 3/3  Abrindo o túnel"
+
+# Log em arquivo, e não só na tela: o terminal do Colab congela sem avisar, e
+# quando isso acontece com o cloudflared em primeiro plano a URL fica presa num
+# display que parou de atualizar. Com o arquivo, ela é recuperável a qualquer
+# momento com `cat ${TUNEL_LOG}`.
+TUNEL_LOG="${TUNEL_LOG:-/content/tunel.log}"
+: > "${TUNEL_LOG}"
+
+cloudflared tunnel --url "http://localhost:${PORTA}" --no-autoupdate   --logfile "${TUNEL_LOG}" >> "${TUNEL_LOG}" 2>&1 &
+TUNEL_PID=$!
+
+# Espera o endereço aparecer no log em vez de dormir um tempo fixo: o registro
+# do túnel varia de alguns segundos a meio minuto.
+ENDERECO=""
+for _ in $(seq 1 45); do
+  ENDERECO="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "${TUNEL_LOG}" | head -1 || true)"
+  [ -n "${ENDERECO}" ] && break
+  sleep 2
+done
+
 echo
-echo "    A URL aparece abaixo, em https://<algo>.trycloudflare.com"
-echo "    Senha do portal: ${SENHA_PORTAL}"
+if [ -z "${ENDERECO}" ]; then
+  echo "    O túnel não registrou endereço. Últimas linhas do log:" >&2
+  tail -n 20 "${TUNEL_LOG}" >&2
+  kill "${TUNEL_PID}" 2>/dev/null || true
+  exit 1
+fi
+
+echo "    ================================================================"
+echo "    URL:   ${ENDERECO}"
+echo "    Senha: ${SENHA_PORTAL}"
+echo "    ================================================================"
 echo
-echo "    Encerre com o botão de parar desta célula. Enquanto ela roda, o"
-echo "    endereço está no ar para qualquer pessoa que o tenha."
+echo "    Recuperar depois:  grep -o 'https://.*trycloudflare.com' ${TUNEL_LOG} | head -1"
+echo "    Encerrar o túnel:  kill ${TUNEL_PID}"
+echo
+echo "    Enquanto o túnel estiver no ar, o endereço alcança qualquer pessoa"
+echo "    que o tenha. A senha é a única barreira."
 echo
 
-# Em primeiro plano de propósito: fechar a célula derruba o túnel, e um túnel
-# esquecido rodando em background é exatamente o que não se quer aqui.
-cloudflared tunnel --url "http://localhost:${PORTA}" --no-autoupdate
+# Segura o processo em primeiro plano DEPOIS de imprimir o endereço: parar a
+# célula derruba o túnel, que é o desejado, mas a URL já foi registrada em disco
+# e sobrevive a um terminal congelado.
+wait "${TUNEL_PID}"
