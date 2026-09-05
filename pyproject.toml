@@ -23,6 +23,9 @@ dependencies = [
     "langchain-openai>=0.2.0",
     "pydantic>=2.0.0",
     "grandalf>=0.7.0",
+    # Laudo em PDF. Python puro, sem dependencia de sistema: a VM do Colab
+    # reinstala tudo a cada sessao e a imagem Docker precisa ficar enxuta.
+    "fpdf2>=2.7.0",
 ]
 
 [project.optional-dependencies]

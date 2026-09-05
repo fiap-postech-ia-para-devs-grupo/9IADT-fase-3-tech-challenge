@@ -51,7 +51,7 @@ echo "==> 2/5  Dependências"
 # upgrade derrubava a porta de entrada da aplicação para atualizar bibliotecas
 # que já estavam em versão suficiente. `pandas` sai da lista pelo mesmo motivo.
 pip install -q streamlit langgraph langchain langchain-community langchain-text-splitters \
-  chromadb sentence-transformers python-dotenv >/dev/null
+  chromadb sentence-transformers python-dotenv fpdf2 >/dev/null
 # `torchao` entra explicitamente por causa de uma checagem do peft: ao aplicar o
 # adapter LoRA ele chama `is_torchao_available()`, que **levanta** quando o
 # torchao existe numa versão antiga em vez de simplesmente devolver False. A

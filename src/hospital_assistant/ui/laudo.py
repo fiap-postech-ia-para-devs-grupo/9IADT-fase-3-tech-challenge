@@ -219,3 +219,94 @@ def gerar(
             "pelo profissional que assina este laudo, e a conduta final é dele.",
         ]
     )
+
+
+# --- PDF --------------------------------------------------------------------
+#
+# O laudo é documento que sai da aplicação: vai para o prontuário físico, para o
+# paciente, para um processo. Markdown serve para ler na tela; PDF é o que se
+# arquiva e se imprime sem depender de quem abre.
+
+# As fontes nativas do PDF usam latin-1, que cobre a acentuação do português mas
+# não a tipografia editorial que o documento usa. Substituir é preferível a
+# embutir uma fonte TrueType: o arquivo ficaria centenas de KB maior e a
+# aplicação passaria a depender de um binário versionado.
+_SUBSTITUICOES = {
+    "—": "-",
+    "–": "-",
+    "·": "-",
+    "…": "...",
+    "“": '"',
+    "”": '"',
+    "‘": "'",
+    "’": "'",
+    "≥": ">=",
+    "≤": "<=",
+}
+
+
+def _para_latin1(texto: str) -> str:
+    for original, substituto in _SUBSTITUICOES.items():
+        texto = texto.replace(original, substituto)
+    # Rede de segurança: qualquer caractere restante fora do latin-1 vira "?"
+    # em vez de derrubar a emissão. Um laudo com um caractere trocado ainda é
+    # um laudo; uma exceção no download não é nada.
+    return texto.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def gerar_pdf(
+    linha: dict[str, Any],
+    paciente: dict[str, Any] | None = None,
+    anamnese: str = "",
+    prescricao: str = "",
+    risco: str | None = None,
+) -> bytes:
+    """Mesmo laudo de `gerar`, em PDF.
+
+    Reaproveita `gerar` em vez de montar o documento de novo: duas montagens do
+    mesmo documento divergiriam, e o que a tela mostra deixaria de ser o que o
+    PDF traz. As validações — resposta aprovada, anamnese e prescrição
+    presentes, paciente definido — vêm junto, de graça.
+    """
+    from fpdf import FPDF
+
+    markdown = gerar(linha, paciente, anamnese, prescricao, risco)
+
+    pdf = FPDF(format="A4")
+    pdf.set_margins(18, 18, 18)
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    # `multi_cell` devolve o cursor à direita por padrão, e a chamada seguinte
+    # com largura 0 (que significa "o que sobrar até a margem") encontra zero
+    # espaço e levanta. Voltar à margem esquerda a cada bloco é o que faz o
+    # documento fluir como texto corrido.
+    def escrever(altura: float, texto: str) -> None:
+        pdf.multi_cell(0, altura, texto, new_x="LMARGIN", new_y="NEXT")
+
+    for bruto in markdown.splitlines():
+        linha_texto = _para_latin1(bruto.rstrip())
+
+        if linha_texto.startswith("# "):
+            pdf.set_font("helvetica", "B", 15)
+            escrever(8, linha_texto[2:])
+            pdf.ln(2)
+        elif linha_texto.startswith("## "):
+            pdf.ln(3)
+            pdf.set_font("helvetica", "B", 11)
+            escrever(6, linha_texto[3:].upper())
+        elif linha_texto.startswith("---"):
+            pdf.ln(3)
+            pdf.line(18, pdf.get_y(), 192, pdf.get_y())
+            pdf.ln(3)
+        elif not linha_texto:
+            pdf.ln(2)
+        else:
+            # `**rótulo:**` vira negrito na linha inteira: o documento usa isso
+            # só nos campos do cabeçalho, e negrito parcial exigiria um parser
+            # de markdown para ganhar pouco.
+            negrito = linha_texto.startswith("**")
+            pdf.set_font("helvetica", "B" if negrito else "", 10)
+            escrever(5, linha_texto.replace("**", ""))
+
+    return bytes(pdf.output())

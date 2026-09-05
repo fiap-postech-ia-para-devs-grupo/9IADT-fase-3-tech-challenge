@@ -18,6 +18,7 @@ from typing import Any
 
 import pandas as pd
 
+from hospital_assistant.llm.prompt import filtrar_relevantes
 from hospital_assistant.ui import rotulos, tema
 
 # ---------------------------------------------------------------------------
@@ -41,6 +42,24 @@ def formatar_data_hora(valor: str) -> str:
         return valor
 
 
+def fontes_relevantes(fontes: Any) -> list[dict[str, Any]]:
+    """Só os trechos que de fato sustentaram a resposta.
+
+    Aplica o **mesmo** limiar que o prompt: o que não entrou no contexto do
+    modelo não pode aparecer como fundamentação da resposta dele. Sem isto o
+    assistente dizia "nenhum protocolo institucional cobre esta pergunta" e a
+    tela, logo abaixo, listava três protocolos — o que desmente a própria
+    resposta e destrói a explicabilidade que o painel existe para dar.
+
+    A trilha de auditoria continua guardando tudo o que foi recuperado; o filtro
+    é de exibição. O que se recuperou e o que fundamentou são perguntas
+    diferentes, e a auditoria precisa responder as duas.
+    """
+    if not isinstance(fontes, list):
+        return []
+    return filtrar_relevantes([f for f in fontes if isinstance(f, dict)])
+
+
 def formatar_fontes(fontes: Any) -> str:
     """Resume os chunks do RAG como `protocolo (score)`, separados por vírgula.
 
@@ -50,6 +69,10 @@ def formatar_fontes(fontes: Any) -> str:
     """
     if not isinstance(fontes, list) or not fontes:
         return "—"
+
+    fontes = fontes_relevantes(fontes)
+    if not fontes:
+        return "nenhum protocolo institucional sustentou esta resposta"
 
     # Agrupa por protocolo, guardando o melhor score. O RAG devolve trechos, e
     # dois trechos do mesmo documento viravam duas entradas idênticas depois que
@@ -285,4 +308,25 @@ def cartao_risco(risco: str | None, avaliado_em: str | None = None) -> str:
         f'<div class="metrica-valor" style="font-size:1.15rem;color:{cor}">'
         f"{html.escape(rotulo)}</div>"
         f'<div class="metrica-rotulo">Classificação de risco{html.escape(quando)}</div></div>'
+    )
+
+
+def badge_risco(risco: str | None, avaliado_em: str | None = None) -> str:
+    """Badge compacto do risco, para a grid de pacientes.
+
+    Versão de linha do `cartao_risco`: numa listagem de dez pacientes, dez
+    cartões ocupariam a tela inteira e a comparação entre eles — que é para o
+    que a grid serve — ficaria impossível.
+    """
+    from hospital_assistant.ui import laudo as _laudo
+
+    if risco not in tema.CORES_RISCO:
+        return f'<span style="color:{tema.TEXTO_TENUE};font-size:.8rem">Sem classificação</span>'
+
+    cor, fundo = tema.CORES_RISCO[risco]
+    rotulo = _laudo.RISCOS[risco].split("—")[0].strip()
+    quando = f" · {formatar_data_hora(avaliado_em).split(' ')[0]}" if avaliado_em else ""
+    return (
+        f'<span class="badge" style="color:{cor};background:{fundo}">{html.escape(rotulo)}</span>'
+        f'<span style="color:{tema.TEXTO_TENUE};font-size:.72rem">{html.escape(quando)}</span>'
     )

@@ -243,9 +243,9 @@ def test_fontes_agrupam_trechos_do_mesmo_protocolo() -> None:
     """
     resultado = ui.formatar_fontes(
         [
-            {"source": "protocolos_sinteticos/sepse.md", "score": 0.49},
-            {"source": "protocolos_sinteticos/sepse.md", "score": 0.41},
-            {"source": "protocolos_sinteticos/dor_toracica_aguda.md", "score": 0.46},
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.79},
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.61},
+            {"source": "protocolos_sinteticos/dor_toracica_aguda.md", "score": 0.66},
         ]
     )
 
@@ -257,13 +257,13 @@ def test_fontes_agrupadas_ficam_com_o_melhor_score() -> None:
     """Mostrar o score mais fraco subestimaria a aderência da resposta à fonte."""
     resultado = ui.formatar_fontes(
         [
-            {"source": "protocolos_sinteticos/sepse.md", "score": 0.41},
+            {"source": "protocolos_sinteticos/sepse.md", "score": 0.61},
             {"source": "protocolos_sinteticos/sepse.md", "score": 0.81},
         ]
     )
 
     assert "(0.81)" in resultado
-    assert "(0.41)" not in resultado
+    assert "(0.61)" not in resultado
 
 
 # --- classificação de risco -------------------------------------------------
@@ -283,3 +283,28 @@ def test_sem_classificacao_o_cartao_diz_isso() -> None:
 
 def test_risco_desconhecido_nao_quebra() -> None:
     assert "Não avaliado" in ui.cartao_risco("roxo")
+
+
+# --- fundamentação coerente com o que o modelo recebeu ----------------------
+
+
+def test_fontes_exibidas_seguem_o_limiar_do_prompt() -> None:
+    """O assistente dizia "nenhum protocolo cobre" e a tela listava três.
+
+    Mostrar como fundamentação um trecho que nem entrou no contexto do modelo
+    desmente a própria resposta.
+    """
+    fracos = [
+        {"source": "protocolos_sinteticos/sepse.md", "score": 0.38},
+        {"source": "protocolos_sinteticos/dor_toracica_aguda.md", "score": 0.42},
+    ]
+
+    assert ui.fontes_relevantes(fracos) == []
+    assert "nenhum protocolo institucional" in ui.formatar_fontes(fracos)
+
+
+def test_fonte_relevante_continua_aparecendo() -> None:
+    forte = [{"source": "protocolos_sinteticos/sepse.md", "score": 0.81}]
+
+    assert len(ui.fontes_relevantes(forte)) == 1
+    assert "Suspeita de sepse" in ui.formatar_fontes(forte)

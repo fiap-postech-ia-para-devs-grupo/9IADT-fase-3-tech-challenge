@@ -162,3 +162,44 @@ def test_risco_e_alerta_persistem_no_rascunho(limpar_auditoria) -> None:
 
     assert guardado["risco"] == "amarelo"
     assert guardado["alerta"] == "Reavaliar em 6h"
+
+
+# --- PDF --------------------------------------------------------------------
+
+
+def _pdf(**ajustes) -> bytes:
+    dados = {
+        "linha": _APROVADA,
+        "paciente": _PACIENTE,
+        "anamnese": _ANAMNESE,
+        "prescricao": _PRESCRICAO,
+    }
+    dados.update(ajustes)
+    return laudo.gerar_pdf(
+        dados["linha"], dados["paciente"], dados["anamnese"], dados["prescricao"]
+    )
+
+
+def test_pdf_sai_como_pdf() -> None:
+    conteudo = _pdf()
+
+    assert conteudo.startswith(b"%PDF-")
+    assert len(conteudo) > 500
+
+
+def test_pdf_herda_as_validacoes_do_markdown() -> None:
+    """Reaproveitar `gerar` traz as regras junto: laudo incompleto não vira PDF."""
+    with pytest.raises(laudo.LaudoIncompleto):
+        _pdf(anamnese="  ")
+
+    with pytest.raises(laudo.RespostaNaoAprovada):
+        _pdf(linha={**_APROVADA, "status": "pendente"})
+
+
+def test_tipografia_fora_do_latin1_nao_derruba_a_emissao() -> None:
+    """Travessão e ponto médio não existem em latin-1, e as fontes nativas do
+    PDF só falam latin-1. Um caractere trocado ainda é um laudo; uma exceção no
+    download não é nada."""
+    conteudo = _pdf(anamnese="Quadro — febril · com ≥ 39 °C e “tosse seca”…")
+
+    assert conteudo.startswith(b"%PDF-")

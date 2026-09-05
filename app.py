@@ -219,36 +219,6 @@ def sugestoes(semente: int) -> list[dict[str, Any]]:
     return itens[:SUGESTOES_POR_VEZ]
 
 
-def _cabecalho_paciente(paciente: dict[str, Any]) -> None:
-    """Identificação e indicadores do paciente em atendimento.
-
-    Os dados vêm de `get_patient_history` e não do resumo do seletor:
-    `list_patients` devolve apenas id, nome e prontuário — deliberadamente, para
-    não expor dado clínico a quem só precisa montar um dropdown.
-    """
-    historico = get_patient_history(paciente["id"])
-    pendentes_exames = [e for e in historico["exames"] if e["status"] == "pendente"]
-    alertas_abertos = [a for a in historico["alertas"] if not a["resolvido"]]
-
-    st.markdown(
-        f"**{historico['nome']}** &nbsp;·&nbsp; prontuário `{historico['prontuario']}`"
-        f" &nbsp;·&nbsp; nascimento "
-        f"{ui.formatar_data_hora(historico['data_nascimento']).split(' ')[0]}",
-        unsafe_allow_html=True,
-    )
-    indicadores = st.columns(4)
-    indicadores[0].markdown(ui.metrica(len(historico["exames"]), "Exames"), unsafe_allow_html=True)
-    indicadores[1].markdown(
-        ui.metrica(len(pendentes_exames), "Exames pendentes"), unsafe_allow_html=True
-    )
-    indicadores[2].markdown(
-        ui.metrica(len(historico["medicacoes"]), "Medicações"), unsafe_allow_html=True
-    )
-    indicadores[3].markdown(
-        ui.metrica(len(alertas_abertos), "Alertas abertos"), unsafe_allow_html=True
-    )
-
-
 def _enviar(pergunta: str, paciente_id: str | None) -> None:
     """Responde a pergunta e acrescenta o turno ao histórico da conversa.
 
@@ -321,12 +291,20 @@ def _render_conversa(historico: list[dict[str, Any]]) -> None:
             st.markdown("**Análise e conduta sugerida**")
             st.markdown(turno["texto"])
 
-            fontes = turno.get("fontes") or []
+            # Mesmo critério do prompt: o que não entrou no contexto do modelo
+            # não pode aparecer como fundamentação da resposta dele.
+            fontes = ui.fontes_relevantes(turno.get("fontes"))
+            st.markdown("**Fundamentação**")
             if fontes:
-                st.markdown("**Fundamentação**")
                 with st.expander(f"Protocolos consultados ({len(fontes)} trechos)"):
                     for posicao, fonte in enumerate(fontes, start=1):
                         st.markdown(ui.cartao_fonte(fonte, posicao), unsafe_allow_html=True)
+            else:
+                st.caption(
+                    "Nenhum protocolo institucional do hospital cobre esta pergunta. A "
+                    "orientação acima é conhecimento clínico geral e não conduta "
+                    "padronizada desta instituição."
+                )
 
             st.markdown("**Encaminhamento**")
             st.info(
@@ -443,10 +421,9 @@ def _assistente_conteudo() -> None:
         _seletor_de_medico("Médico solicitante", "medico_solicitante")
     paciente_id = por_rotulo[escolha]
 
-    if paciente_id:
-        selecionado = next(p for p in pacientes if p["id"] == paciente_id)
-        with st.container(border=True):
-            _cabecalho_paciente(selecionado)
+    # Sem os cartões de exames e alertas aqui: eles pertencem ao prontuário, em
+    # Cadastro › Pacientes, e no composer só empurravam a caixa de pergunta e o
+    # botão de enviar para fora da primeira dobra.
 
     # Envio na última linha, alinhado à direita: é a ação que fecha o composer,
     # depois de pergunta, atalhos e contexto do paciente já estarem definidos.
@@ -660,12 +637,16 @@ def _atendimentos_na_base(busca: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+PACIENTES_POR_PAGINA = 10
+DETALHE = "paciente_em_detalhe"
+
+
 def _risco_atual(paciente_id: str) -> tuple[str | None, str | None]:
     """Classificação de risco do atendimento mais recente do paciente.
 
     Vem do laudo, e não do cadastro: risco é avaliação de um momento. Devolve
-    também a data, porque uma classificação de três meses atrás não diz o mesmo
-    que a de hoje — e sem a data quem lê não tem como saber a diferença.
+    também a data, porque uma classificação de meses atrás não diz o mesmo que a
+    de hoje — e sem a data quem lê não tem como saber a diferença.
     """
     atendimentos = [
         linha
@@ -721,7 +702,7 @@ def _evolucao(historico: dict[str, Any]) -> list[dict[str, str]]:
             {
                 "data": alerta["data"],
                 "tipo": "Alerta",
-                "icone": "⚠️" if not alerta["resolvido"] else "✅",
+                "icone": "✅" if alerta["resolvido"] else "⚠️",
                 "descricao": (
                     f"{alerta['descricao']} ({alerta['severidade']})"
                     + (" — resolvido" if alerta["resolvido"] else "")
@@ -734,32 +715,107 @@ def _evolucao(historico: dict[str, Any]) -> list[dict[str, str]]:
 
 def modulo_pacientes() -> None:
     st.markdown("### Pacientes")
-    st.caption("Cadastro, evolução clínica e prontuário.")
+
+    em_detalhe = st.session_state.get(DETALHE)
+    if em_detalhe is None:
+        _lista_pacientes()
+    else:
+        _detalhe_paciente(em_detalhe)
+
+
+def _lista_pacientes() -> None:
+    """Grid de pacientes com o risco de cada um, paginada."""
+    st.caption("Cadastro de pacientes com a classificação de risco do último atendimento.")
 
     pacientes = list_patients()
     if not pacientes:
         # Sem comando de terminal: quem opera a tela não administra o banco, e
         # o texto anterior expunha o módulo interno de carga de dados.
-        st.warning(
-            "Nenhum paciente cadastrado. Acione a equipe técnica para carregar a base."
-        )
+        st.warning("Nenhum paciente cadastrado. Acione a equipe técnica para carregar a base.")
         return
 
-    escolha = st.selectbox(
-        "Paciente",
-        [p["id"] for p in pacientes],
-        format_func=lambda pid: next(
-            f"{p['nome']} ({p['prontuario']})" for p in pacientes if p["id"] == pid
-        ),
+    # O risco é resolvido antes dos filtros porque é por ele que se filtra, e
+    # calculá-lo depois obrigaria a percorrer a lista duas vezes.
+    riscos = {p["id"]: _risco_atual(p["id"]) for p in pacientes}
+
+    filtros = st.columns([3, 2])
+    busca = filtros[0].text_input("Buscar", placeholder="nome ou prontuário")
+    risco_filtro = filtros[1].selectbox(
+        "Classificação de risco",
+        ["todos", *laudo.RISCOS, "sem_classificacao"],
+        format_func=lambda chave: {
+            "todos": "Todas",
+            "sem_classificacao": "Sem classificação",
+        }.get(chave, laudo.RISCOS.get(chave, chave)),
     )
 
-    historico = get_patient_history(escolha)
-    risco, avaliado_em = _risco_atual(escolha)
+    if busca.strip():
+        termo = busca.strip().lower()
+        pacientes = [
+            p for p in pacientes if termo in p["nome"].lower() or termo in p["prontuario"].lower()
+        ]
+    if risco_filtro == "sem_classificacao":
+        pacientes = [p for p in pacientes if riscos[p["id"]][0] is None]
+    elif risco_filtro != "todos":
+        pacientes = [p for p in pacientes if riscos[p["id"]][0] == risco_filtro]
+
+    if not pacientes:
+        st.info("Nenhum paciente encontrado para esses filtros.")
+        return
+
+    pagina = st.session_state.get("pagina_pacientes", 1)
+    itens, total_paginas = ui.paginar(pacientes, pagina, PACIENTES_POR_PAGINA)
+
+    for paciente in itens:
+        risco, avaliado_em = riscos[paciente["id"]]
+        with st.container(border=True):
+            colunas = st.columns([3, 2, 2, 1])
+            colunas[0].markdown(f"**{paciente['nome']}**")
+            colunas[1].caption("Prontuário")
+            colunas[1].markdown(f"`{paciente['prontuario']}`")
+            colunas[2].markdown(
+                ui.badge_risco(risco, avaliado_em), unsafe_allow_html=True
+            )
+            if colunas[3].button(
+                "Ver detalhes", key=f"detalhe-{paciente['id']}", use_container_width=True
+            ):
+                st.session_state[DETALHE] = paciente["id"]
+                st.rerun()
+
+    if total_paginas > 1:
+        navegacao = st.columns([1, 2, 1])
+        if navegacao[0].button("← Anteriores", disabled=pagina <= 1):
+            st.session_state["pagina_pacientes"] = pagina - 1
+            st.rerun()
+        navegacao[1].markdown(
+            f"<div style='text-align:center;color:{tema.TEXTO_TENUE};font-size:.82rem'>"
+            f"Página {min(pagina, total_paginas)} de {total_paginas}</div>",
+            unsafe_allow_html=True,
+        )
+        if navegacao[2].button("Próximos →", disabled=pagina >= total_paginas):
+            st.session_state["pagina_pacientes"] = pagina + 1
+            st.rerun()
+
+
+def _detalhe_paciente(paciente_id: str) -> None:
+    """Prontuário completo de um paciente: indicadores, evolução e as tabelas."""
+    if st.button("← Voltar para os pacientes"):
+        st.session_state[DETALHE] = None
+        st.rerun()
+
+    historico = get_patient_history(paciente_id)
+    risco, avaliado_em = _risco_atual(paciente_id)
+
+    st.markdown(
+        f"#### {historico['nome']} &nbsp;·&nbsp; prontuário `{historico['prontuario']}`",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"Nascimento em {ui.formatar_data_hora(historico['data_nascimento']).split(' ')[0]}"
+    )
 
     indicadores = st.columns(4)
-    indicadores[0].markdown(
-        ui.metrica(len(historico["exames"]), "Exames"), unsafe_allow_html=True
-    )
+    indicadores[0].markdown(ui.metrica(len(historico["exames"]), "Exames"), unsafe_allow_html=True)
     indicadores[1].markdown(
         ui.metrica(len(historico["medicacoes"]), "Medicações"), unsafe_allow_html=True
     )
@@ -1110,19 +1166,23 @@ def _linha_da_grid(linha: AuditRow, pacientes: dict[str, Any], situacao: str) ->
             colunas[4].caption("incompleto")
             return
 
-        documento = laudo.gerar(
-            dict(linha), paciente, rascunho["anamnese"], rascunho["prescricao"]
+        argumentos = (
+            dict(linha),
+            paciente,
+            rascunho["anamnese"],
+            rascunho["prescricao"],
+            rascunho["risco"],
         )
         colunas[4].download_button(
             "Baixar",
-            data=documento,
-            file_name=f"laudo-{registro_id}.md",
-            mime="text/markdown",
+            data=laudo.gerar_pdf(*argumentos),
+            file_name=f"laudo-{registro_id}.pdf",
+            mime="application/pdf",
             key=f"baixar-{registro_id}",
             use_container_width=True,
         )
         with st.expander("Visualizar"):
-            st.markdown(documento)
+            st.markdown(laudo.gerar(*argumentos))
 
 
 def _formulario_laudo(registro_id: int) -> None:
