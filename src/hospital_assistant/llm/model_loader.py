@@ -101,9 +101,16 @@ class LLM(Protocol):
 class MockLLM:
     """Stand-in determinístico para quando não há adapter carregado.
 
-    Ecoa as fontes recuperadas de propósito: assim a Tela 1 mostra visivelmente
-    que o RAG chegou até o modelo, mesmo sem modelo de verdade — e um chunk
-    que não chega ao prompt vira um sintoma observável em vez de um silêncio.
+    Devolve texto em formato de artigo — título, resumo do que foi consultado e
+    encaminhamento — em vez de uma linha única. O formato importa porque é o
+    que a fila de validação exibe: o médico revisor lê a resposta, e um bloco
+    corrido com caminhos de arquivo no meio é ilegível.
+
+    **Não repete o nome dos arquivos recuperados.** A procedência pertence ao
+    painel de fontes, que mostra arquivo, trecho e score lado a lado; repeti-la
+    dentro da resposta polui o texto sem acrescentar informação. O que fica é a
+    contagem — suficiente para tornar observável se o RAG chegou ou não ao
+    modelo, que é a razão de este stand-in existir.
     """
 
     def generate(
@@ -112,15 +119,48 @@ class MockLLM:
         contexto_rag: list[dict[str, Any]] | None = None,
         exames_pendentes: list[dict[str, Any]] | None = None,
     ) -> str:
-        partes = [f"[MOCK LLM] Sugestão gerada para: {pergunta[:80]!r}"]
+        n_fontes = len(contexto_rag or [])
+        n_exames = len(exames_pendentes or [])
 
-        if contexto_rag:
-            fontes = ", ".join(str(c.get("source", "desconhecida")) for c in contexto_rag)
-            partes.append(f"Fontes consultadas: {fontes}.")
-        if exames_pendentes:
-            partes.append(f"Exames pendentes considerados: {len(exames_pendentes)}.")
+        linhas = [
+            "### Sugestão preliminar",
+            "",
+            f"**Pergunta analisada:** {pergunta.strip()}",
+            "",
+            "#### Base consultada",
+        ]
 
-        return " ".join(partes)
+        if n_fontes:
+            linhas.append(
+                f"Foram recuperados {n_fontes} trecho(s) de protocolo relevantes para o caso. "
+                "O detalhamento de cada um, com origem e grau de similaridade, está no painel "
+                "de fontes desta resposta."
+            )
+        else:
+            linhas.append(
+                "Nenhum trecho de protocolo foi recuperado para esta pergunta. A sugestão "
+                "abaixo não tem fundamentação documental e exige conferência redobrada."
+            )
+
+        if n_exames:
+            linhas += [
+                "",
+                "#### Situação do paciente",
+                f"Há {n_exames} exame(s) pendente(s) no prontuário, considerados nesta análise.",
+            ]
+
+        linhas += [
+            "",
+            "#### Encaminhamento",
+            "Esta sugestão segue para a fila de validação e só vale como conduta após revisão "
+            "de um médico responsável.",
+            "",
+            "> Resposta gerada em modo de demonstração: este ambiente não possui placa de vídeo "
+            "dedicada, necessária para executar o modelo treinado. O fluxo de atendimento, as "
+            "fontes consultadas e a validação humana são reais.",
+        ]
+
+        return "\n".join(linhas)
 
 
 @dataclass

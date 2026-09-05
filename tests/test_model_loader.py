@@ -18,9 +18,28 @@ def test_mock_llm_e_deterministico() -> None:
     assert mock.generate("Qual a conduta na sepse?") == mock.generate("Qual a conduta na sepse?")
 
 
-def test_mock_llm_marca_a_resposta_como_mock() -> None:
-    """A marca `[MOCK LLM]` é o sinal visível na Tela 1 de que não há adapter."""
-    assert "[MOCK LLM]" in MockLLM().generate("Qual a conduta na sepse?")
+def test_mock_llm_avisa_que_nao_e_o_modelo_fine_tunado() -> None:
+    """O revisor precisa saber que a resposta não veio do modelo treinado."""
+    resposta = MockLLM().generate("Qual a conduta na sepse?")
+
+    assert "modo de demonstração" in resposta
+
+
+def test_mock_llm_nao_expoe_jargao_de_infraestrutura() -> None:
+    """A resposta é lida por médico: nada de nome de biblioteca ou variável."""
+    resposta = MockLLM().generate("Qual a conduta na sepse?")
+
+    for termo in ("bitsandbytes", "HF_ADAPTER_REPO", "quantização", "stand-in", "LoRA"):
+        assert termo not in resposta
+
+
+def test_mock_llm_responde_em_formato_de_artigo() -> None:
+    """A fila de validação exibe este texto; bloco corrido é ilegível para revisão."""
+    resposta = MockLLM().generate("Qual a conduta na sepse?")
+
+    assert resposta.startswith("### ")
+    assert "#### Base consultada" in resposta
+    assert "#### Encaminhamento" in resposta
 
 
 def test_mock_llm_aceita_contexto_e_exames() -> None:
@@ -34,11 +53,28 @@ def test_mock_llm_aceita_contexto_e_exames() -> None:
     assert isinstance(resposta, str)
 
 
-def test_mock_llm_cita_a_fonte_recuperada() -> None:
-    """Sem isso a Tela 1 fica idêntica com e sem RAG, e a demo não mostra nada."""
-    resposta = MockLLM().generate("P", contexto_rag=[{"text": "t", "source": "sepse.md", "score": 0.8}])
+def test_mock_llm_registra_quantas_fontes_chegaram() -> None:
+    """Torna observável se o RAG alcançou o modelo — sem poluir o texto com caminhos."""
+    resposta = MockLLM().generate(
+        "P", contexto_rag=[{"text": "t", "source": "sepse.md", "score": 0.8}]
+    )
 
-    assert "sepse.md" in resposta
+    assert "1 trecho(s)" in resposta
+
+
+def test_mock_llm_nao_repete_nome_de_arquivo_na_resposta() -> None:
+    """A procedência pertence ao painel de fontes, não ao corpo da resposta."""
+    resposta = MockLLM().generate(
+        "P", contexto_rag=[{"text": "t", "source": "protocolos/sepse.md", "score": 0.8}]
+    )
+
+    assert "sepse.md" not in resposta
+    assert "protocolos" not in resposta
+
+
+def test_mock_llm_sinaliza_ausencia_de_fundamentacao() -> None:
+    """Resposta sem fonte recuperada precisa dizer isso, não passar batido."""
+    assert "não tem fundamentação documental" in MockLLM().generate("P")
 
 
 def test_load_llm_sem_adapter_cai_no_mock(monkeypatch) -> None:

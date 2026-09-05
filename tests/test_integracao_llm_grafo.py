@@ -85,12 +85,15 @@ def test_get_llm_reaproveita_a_mesma_instancia() -> None:
 
 
 def test_fluxo_real_leva_as_fontes_do_rag_ate_a_resposta(limpar_auditoria, monkeypatch) -> None:
-    """Ponta a ponta com o MockLLM: o chunk recuperado aparece na sugestão final.
+    """Ponta a ponta com o MockLLM: o contexto recuperado alcança a geração.
 
-    O backend é fixado explicitamente porque a asserção depende do MockLLM
-    ecoar as fontes. Sem isso, numa máquina com `HF_ADAPTER_REPO` definido (o
-    que o README manda fazer depois de publicar o adapter), o teste baixaria um
-    modelo de 3B e falharia na asserção.
+    A asserção é sobre a *contagem* de trechos, e não sobre o nome do arquivo:
+    a resposta não repete caminhos (isso pertence ao painel de fontes), mas
+    registra quantos trechos recebeu — que é o que prova que o nó anterior
+    entregou o contexto ao modelo.
+
+    O backend é fixado explicitamente porque numa máquina com `HF_ADAPTER_REPO`
+    definido o teste baixaria um modelo de 3B.
     """
     from hospital_assistant.graph.flow import run
 
@@ -99,8 +102,7 @@ def test_fluxo_real_leva_as_fontes_do_rag_ate_a_resposta(limpar_auditoria, monke
     resultado = run("Qual a conduta inicial na sepse?")
 
     assert resultado["contexto_rag"], "o retriever não devolveu nada — Chroma não indexado?"
-    fontes = {c["source"] for c in resultado["contexto_rag"]}
-    assert any(fonte in resultado["sugestao_llm"] for fonte in fontes)
+    assert f"{len(resultado['contexto_rag'])} trecho(s)" in resultado["sugestao_llm"]
 
 
 def test_sem_adapter_o_backend_e_o_mock(monkeypatch) -> None:
