@@ -43,6 +43,7 @@ data/audit.db
 # Estado de execucao: decisoes de validacao e base que cresce com os atendimentos.
 data/decisoes_validacao.json
 data/base_conhecimento.json
+data/medicos.json
 clinical_audit.log
 clinical_audit.jsonl
 dataprep.log

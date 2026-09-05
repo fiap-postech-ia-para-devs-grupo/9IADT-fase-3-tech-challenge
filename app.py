@@ -36,6 +36,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from hospital_assistant.db.patient_tools import get_patient_history, list_patients
@@ -52,7 +53,14 @@ from hospital_assistant.safety.audit_log import (
     real_audit_rows,
 )
 from hospital_assistant.ui import componentes as ui
-from hospital_assistant.ui import conhecimento_store, decisoes_store, rotulos, tema
+from hospital_assistant.ui import (
+    conhecimento_store,
+    decisoes_store,
+    laudo,
+    medicos_store,
+    rotulos,
+    tema,
+)
 
 st.set_page_config(page_title="Portal Clínico · Assistente Médico", layout="wide")
 
@@ -71,9 +79,11 @@ MENU: list[tuple[str, list[tuple[str, str]]]] = [
         ("assistente", "Assistente"),
         ("validacao", "Fila de validação"),
         ("conhecimento", "Base de conhecimento"),
+        ("laudos", "Laudos"),
     ]),
     ("Cadastro", [
         ("pacientes", "Pacientes"),
+        ("medicos", "Médicos"),
     ]),
     ("Auditoria", [
         ("auditoria", "Auditoria"),
@@ -268,12 +278,30 @@ def _render_conversa(historico: list[dict[str, Any]]) -> None:
     """
     for turno in historico:
         with st.chat_message(turno["papel"]):
+            if turno["papel"] == "user":
+                st.markdown(turno["texto"])
+                continue
+
+            # A resposta do modelo é texto corrido. As seções abaixo são de
+            # apresentação, não de geração: nomeiam o que já existe — a análise,
+            # a fundamentação e o destino da sugestão — para o revisor saber o
+            # que está lendo e o que ainda falta acontecer.
+            st.markdown("**Análise e conduta sugerida**")
             st.markdown(turno["texto"])
+
             fontes = turno.get("fontes") or []
             if fontes:
-                with st.expander(f"Base consultada ({len(fontes)} trechos)"):
+                st.markdown("**Fundamentação**")
+                with st.expander(f"Protocolos consultados ({len(fontes)} trechos)"):
                     for posicao, fonte in enumerate(fontes, start=1):
                         st.markdown(ui.cartao_fonte(fonte, posicao), unsafe_allow_html=True)
+
+            st.markdown("**Encaminhamento**")
+            st.info(
+                "Esta sugestão está na fila de validação e só vale como conduta depois de "
+                "aprovada por um médico responsável. O laudo é emitido a partir daí.",
+                icon="🩺",
+            )
 
 
 def _chips_sugestao() -> None:
@@ -413,7 +441,7 @@ def modulo_validacao() -> None:
     registros = carregar_registros()
     fila = pendentes(registros)
 
-    aprovador = st.text_input("Médico responsável pela validação", key="aprovador_portal")
+    aprovador = _seletor_de_medico()
 
     if not fila:
         st.success("Nenhuma resposta aguardando validação.")
@@ -685,11 +713,134 @@ def modulo_auditoria() -> None:
 # Layout
 # ---------------------------------------------------------------------------
 
+def _seletor_de_medico() -> str | None:
+    """Quem está validando, escolhido do cadastro em vez de digitado.
+
+    O campo era texto livre: qualquer nome, sem conferência, gravado na trilha
+    como responsável clínico pela aprovação. Numa trilha de auditoria o
+    responsável precisa ser alguém que existe e que se possa localizar depois —
+    daí o CRM junto do nome.
+    """
+    medicos = medicos_store.listar(apenas_ativos=True)
+    if not medicos:
+        st.warning("Nenhum médico ativo no cadastro. Cadastre um em Cadastro › Médicos.")
+        return None
+
+    escolha = st.selectbox(
+        "Médico responsável pela validação",
+        ["Selecione…", *(f"{m['nome']} · {m['crm']}" for m in medicos)],
+        key="aprovador_portal",
+    )
+    return None if escolha == "Selecione…" else escolha
+
+
+# ---------------------------------------------------------------------------
+# Módulo: Médicos
+# ---------------------------------------------------------------------------
+
+
+def modulo_medicos() -> None:
+    st.markdown("### Médicos")
+    st.caption(
+        "Quem pode validar respostas do assistente. O nome escolhido aqui é o que fica "
+        "gravado na trilha de auditoria como responsável pela aprovação."
+    )
+
+    with st.expander("Cadastrar médico"):
+        with st.form("cadastro_medico", clear_on_submit=True):
+            campos = st.columns([2, 1, 2])
+            nome = campos[0].text_input("Nome")
+            crm = campos[1].text_input("CRM", placeholder="CRM-SP 000000")
+            especialidade = campos[2].selectbox("Especialidade", medicos_store.ESPECIALIDADES)
+
+            if st.form_submit_button("Cadastrar", type="primary"):
+                try:
+                    criado = medicos_store.criar(nome, crm, especialidade)
+                except ValueError as erro:
+                    st.error(str(erro))
+                else:
+                    st.success(f"{criado['nome']} cadastrado.")
+                    st.rerun()
+
+    medicos = medicos_store.listar()
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Nome": m["nome"],
+                    "CRM": m["crm"],
+                    "Especialidade": m["especialidade"],
+                    "Situação": "Ativo" if m.get("ativo", True) else "Inativo",
+                }
+                for m in medicos
+            ]
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # Inativar em vez de excluir: o nome do validador fica na trilha de
+    # auditoria, e apagar o cadastro deixaria registros apontando para ninguém.
+    alvo = st.selectbox(
+        "Ativar ou inativar",
+        ["Selecione…", *(f"{m['nome']} · {m['crm']}" for m in medicos)],
+        key="alvo_medico",
+    )
+    if alvo != "Selecione…" and st.button("Alternar situação"):
+        indice = [f"{m['nome']} · {m['crm']}" for m in medicos].index(alvo)
+        medicos_store.alternar_ativo(medicos[indice]["id"])
+        st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Módulo: Laudos
+# ---------------------------------------------------------------------------
+
+
+def modulo_laudos() -> None:
+    st.markdown("### Laudos")
+    st.caption(
+        "Documento gerado a partir de uma resposta já validada, com o médico responsável "
+        "identificado. Só respostas aprovadas aparecem aqui."
+    )
+
+    aprovadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
+    if not aprovadas:
+        st.info(
+            "Nenhuma resposta aprovada ainda. Aprove uma na fila de validação para poder "
+            "emitir o laudo."
+        )
+        return
+
+    pacientes = {p["id"]: p for p in list_patients()}
+    rotulos_laudo = {
+        f"nº {linha['id']} · {ui.resumir_texto(linha['pergunta'], limite=70)}": linha
+        for linha in aprovadas
+    }
+    escolha = st.selectbox("Resposta validada", list(rotulos_laudo))
+    linha = rotulos_laudo[escolha]
+
+    documento = laudo.gerar(dict(linha), pacientes.get(linha["paciente_id"] or ""))
+
+    with st.container(border=True):
+        st.markdown(documento)
+
+    st.download_button(
+        "Baixar laudo",
+        data=documento,
+        file_name=f"laudo-{linha['id']}.md",
+        mime="text/markdown",
+        type="primary",
+    )
+
+
 PAGINAS = {
     "assistente": modulo_assistente,
     "validacao": modulo_validacao,
     "conhecimento": modulo_conhecimento,
+    "laudos": modulo_laudos,
     "pacientes": modulo_pacientes,
+    "medicos": modulo_medicos,
     "auditoria": modulo_auditoria,
 }
 

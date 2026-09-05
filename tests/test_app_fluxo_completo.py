@@ -20,6 +20,7 @@ from streamlit.testing.v1 import AppTest
 
 from hospital_assistant.paths import PROJECT_ROOT
 from hospital_assistant.safety.audit_log import real_audit_rows
+from hospital_assistant.ui import medicos_store
 
 _APP_PATH = str(PROJECT_ROOT / "app.py")
 _PERGUNTA = "Qual remédio devo prescrever para o paciente?"
@@ -59,7 +60,11 @@ def test_pergunta_grafo_fila_aprovacao_auditoria(limpar_auditoria):
     at = _navegar(at, "validacao")
     assert not at.exception
 
-    at.text_input(key="aprovador_portal").set_value("Dra. Lima").run(timeout=60)
+    # O validador vem do cadastro, não de texto livre: a trilha precisa apontar
+    # para um médico que existe e que se possa localizar depois.
+    medico = medicos_store.listar(apenas_ativos=True)[0]
+    rotulo = f"{medico['nome']} · {medico['crm']}"
+    at.selectbox(key="aprovador_portal").set_value(rotulo).run(timeout=60)
     at.button(key=f"portal-aprovar-{registro['id']}").click().run(timeout=60)
     assert not at.exception
 
@@ -72,7 +77,7 @@ def test_pergunta_grafo_fila_aprovacao_auditoria(limpar_auditoria):
     tabela = at.dataframe[0].value
     linha = tabela.loc[tabela["Nº"] == str(registro["id"])].iloc[0]
     assert linha["Situação"] == "Aprovado"
-    assert linha["Validado por"] == "Dra. Lima"
+    assert linha["Validado por"] == rotulo
 
 
 def test_toda_resposta_entra_na_fila_mesmo_sem_medicamento(limpar_auditoria):
@@ -90,7 +95,7 @@ def test_toda_resposta_entra_na_fila_mesmo_sem_medicamento(limpar_auditoria):
     at = _abrir("validacao")
 
     assert not at.exception
-    assert at.text_input(key="aprovador_portal") is not None
+    assert at.selectbox(key="aprovador_portal") is not None
 
 
 def test_navegacao_desconhecida_cai_na_pagina_padrao():
