@@ -52,7 +52,13 @@ echo "==> 2/5  Dependências"
 # que já estavam em versão suficiente. `pandas` sai da lista pelo mesmo motivo.
 pip install -q streamlit langgraph langchain langchain-community langchain-text-splitters \
   chromadb sentence-transformers python-dotenv >/dev/null
-pip install -q peft bitsandbytes accelerate >/dev/null
+# `torchao` entra explicitamente por causa de uma checagem do peft: ao aplicar o
+# adapter LoRA ele chama `is_torchao_available()`, que **levanta** quando o
+# torchao existe numa versão antiga em vez de simplesmente devolver False. A
+# imagem do Colab traz a 0.10, o peft atual exige acima da 0.16, e o resultado
+# era `ImportError` no meio da primeira pergunta — com o modelo já carregado, o
+# que fazia parecer problema do modelo e não de dependência.
+pip install -q peft bitsandbytes accelerate "torchao>=0.16.0" >/dev/null
 
 echo "==> 3/5  Dados (SQLite de pacientes e índice vetorial)"
 export PYTHONPATH="${DESTINO}/src"

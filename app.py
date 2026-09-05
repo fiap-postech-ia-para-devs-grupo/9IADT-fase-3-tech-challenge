@@ -819,8 +819,49 @@ def modulo_laudos() -> None:
     }
     escolha = st.selectbox("Resposta validada", list(rotulos_laudo))
     linha = rotulos_laudo[escolha]
+    registro_id = linha["id"]
 
-    documento = laudo.gerar(dict(linha), pacientes.get(linha["paciente_id"] or ""))
+    rascunho = laudo.obter_rascunho(registro_id)
+    completo = laudo.esta_completo(registro_id)
+
+    st.markdown(
+        ui.badge_status("aprovado" if completo else "pendente"), unsafe_allow_html=True
+    )
+    st.caption(
+        "Laudo concluído, pronto para emissão."
+        if completo
+        else "Pendente de conclusão: anamnese e prescrição são do médico e ainda faltam."
+    )
+
+    # Anamnese e prescrição são digitadas, nunca sugeridas. A avaliação
+    # comparativa mostrou o modelo ajustado devolvendo dose e posologia onde o
+    # base recusava — num documento assinado, essa parte precisa ter saído de
+    # quem assina.
+    with st.form(f"laudo-{registro_id}"):
+        anamnese = st.text_area(
+            "Anamnese", value=rascunho["anamnese"], height=140,
+            placeholder="Quadro clínico, história e exame físico.",
+        )
+        prescricao = st.text_area(
+            "Prescrição", value=rascunho["prescricao"], height=140,
+            placeholder="Medicação, dose, via e posologia, sob responsabilidade do prescritor.",
+        )
+        if st.form_submit_button("Salvar laudo", type="primary"):
+            # Salva mesmo incompleto: o médico pode escrever a anamnese, sair
+            # para conferir um exame e voltar.
+            laudo.salvar_rascunho(registro_id, anamnese, prescricao)
+            st.rerun()
+
+    try:
+        documento = laudo.gerar(
+            dict(linha),
+            pacientes.get(linha["paciente_id"] or ""),
+            anamnese=rascunho["anamnese"],
+            prescricao=rascunho["prescricao"],
+        )
+    except laudo.LaudoIncompleto as erro:
+        st.info(f"{erro} Preencha e salve para liberar a emissão.", icon="📝")
+        return
 
     with st.container(border=True):
         st.markdown(documento)
@@ -828,7 +869,7 @@ def modulo_laudos() -> None:
     st.download_button(
         "Baixar laudo",
         data=documento,
-        file_name=f"laudo-{linha['id']}.md",
+        file_name=f"laudo-{registro_id}.md",
         mime="text/markdown",
         type="primary",
     )

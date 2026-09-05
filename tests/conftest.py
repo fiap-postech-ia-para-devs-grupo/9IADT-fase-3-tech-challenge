@@ -17,7 +17,7 @@ from hospital_assistant.db.seed_mock_data import seed
 from hospital_assistant.paths import CHROMA_DIR, PATIENTS_DB
 from hospital_assistant.rag.ingest import ingest
 from hospital_assistant.safety.audit_log import ClinicalAuditLogger
-from hospital_assistant.ui import conhecimento_store, decisoes_store
+from hospital_assistant.ui import conhecimento_store, decisoes_store, laudo
 
 
 def _chroma_populated() -> bool:
@@ -66,3 +66,4 @@ def limpar_auditoria() -> None:
     # A base de conhecimento indexa pelo mesmo id: sem zerá-la, uma resposta
     # aprovada num teste viraria cache para a pergunta de outro.
     conhecimento_store.limpar()
+    laudo.limpar()

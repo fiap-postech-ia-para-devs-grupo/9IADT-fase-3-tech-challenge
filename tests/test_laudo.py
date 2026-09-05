@@ -26,9 +26,21 @@ _APROVADA = {
 
 _PACIENTE = {"id": "1", "nome": "Ana Souza", "prontuario": "PR-0001"}
 
+_ANAMNESE = "Paciente com febre há 2 dias, taquipneica, sem foco evidente."
+_PRESCRICAO = "Ceftriaxona 1 g EV 12/12h, conforme avaliação da médica assistente."
+
+
+def _gerar(**ajustes):
+    dados = {"linha": _APROVADA, "paciente": _PACIENTE, "anamnese": _ANAMNESE,
+             "prescricao": _PRESCRICAO}
+    dados.update(ajustes)
+    return laudo.gerar(
+        dados["linha"], dados["paciente"], dados["anamnese"], dados["prescricao"]
+    )
+
 
 def test_laudo_traz_paciente_conduta_e_responsavel() -> None:
-    documento = laudo.gerar(_APROVADA, _PACIENTE)
+    documento = _gerar()
 
     assert "Ana Souza" in documento
     assert "PR-0001" in documento
@@ -38,7 +50,7 @@ def test_laudo_traz_paciente_conduta_e_responsavel() -> None:
 
 def test_laudo_cita_a_fundamentacao_pelo_titulo_do_protocolo() -> None:
     """Mesmo critério das outras telas: caminho de arquivo não diz nada ao médico."""
-    documento = laudo.gerar(_APROVADA, _PACIENTE)
+    documento = _gerar()
 
     assert "Suspeita de sepse" in documento
     assert "sepse.md" not in documento
@@ -46,7 +58,7 @@ def test_laudo_cita_a_fundamentacao_pelo_titulo_do_protocolo() -> None:
 
 def test_laudo_sem_paciente_diz_isso_explicitamente() -> None:
     """Omitir o campo sugeriria que houve um paciente identificado."""
-    documento = laudo.gerar({**_APROVADA, "paciente_id": None}, None)
+    documento = _gerar(linha={**_APROVADA, "paciente_id": None}, paciente=None)
 
     assert "Consulta sem paciente vinculado" in documento
 
@@ -54,10 +66,55 @@ def test_laudo_sem_paciente_diz_isso_explicitamente() -> None:
 @pytest.mark.parametrize("status", ["pendente", "rejeitado", "nao_necessaria"])
 def test_resposta_nao_aprovada_nao_vira_laudo(status: str) -> None:
     with pytest.raises(laudo.RespostaNaoAprovada):
-        laudo.gerar({**_APROVADA, "status": status}, _PACIENTE)
+        _gerar(linha={**_APROVADA, "status": status})
 
 
 def test_mensagem_do_erro_usa_o_status_legivel() -> None:
     """Quem lê o erro é o operador da tela, não quem mantém o código."""
     with pytest.raises(laudo.RespostaNaoAprovada, match="Pendente de validação"):
-        laudo.gerar({**_APROVADA, "status": "pendente"}, _PACIENTE)
+        _gerar(linha={**_APROVADA, "status": "pendente"})
+
+
+# --- anamnese e prescrição são do médico ------------------------------------
+
+
+def test_laudo_traz_anamnese_e_prescricao() -> None:
+    documento = _gerar()
+
+    assert "## Anamnese" in documento
+    assert "taquipneica" in documento
+    assert "## Prescrição" in documento
+    assert "Ceftriaxona" in documento
+
+
+def test_documento_atribui_a_prescricao_a_quem_assina() -> None:
+    """A avaliação mostrou o modelo devolvendo posologia; o laudo precisa deixar
+    claro que essa parte não saiu dele."""
+    documento = _gerar()
+
+    assert "redigidas" in documento
+    assert "profissional que assina" in documento
+
+
+@pytest.mark.parametrize("faltando", ["anamnese", "prescricao"])
+def test_laudo_sem_texto_do_medico_nao_e_emitido(faltando: str) -> None:
+    with pytest.raises(laudo.LaudoIncompleto):
+        _gerar(**{faltando: "   "})
+
+
+def test_rascunho_incompleto_pode_ser_salvo(limpar_auditoria) -> None:
+    """O médico escreve a anamnese, sai para conferir um exame e volta."""
+    laudo.salvar_rascunho(5, _ANAMNESE, "")
+
+    assert laudo.obter_rascunho(5)["anamnese"] == _ANAMNESE
+    assert laudo.esta_completo(5) is False
+
+
+def test_rascunho_completo_libera_a_emissao(limpar_auditoria) -> None:
+    laudo.salvar_rascunho(5, _ANAMNESE, _PRESCRICAO)
+
+    assert laudo.esta_completo(5) is True
+
+
+def test_rascunho_inexistente_volta_vazio(limpar_auditoria) -> None:
+    assert laudo.obter_rascunho(999) == {"anamnese": "", "prescricao": ""}

@@ -44,6 +44,7 @@ data/audit.db
 data/decisoes_validacao.json
 data/base_conhecimento.json
 data/medicos.json
+data/laudos.json
 clinical_audit.log
 clinical_audit.jsonl
 dataprep.log
