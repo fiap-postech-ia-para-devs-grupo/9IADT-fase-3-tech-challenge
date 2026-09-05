@@ -10,9 +10,8 @@
 #
 #     !curl -sL https://raw.githubusercontent.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge/main/scripts/colab_portal.sh | bash
 #
-# Pré-requisitos na sessão:
-#   - Ambiente de execução com GPU T4
-#   - Secret HF_TOKEN cadastrado e liberado para o notebook
+# Pré-requisito na sessão: ambiente de execução com GPU T4. O adapter é público
+# e o modelo base vem de um espelho não-gated, então nenhum token é necessário.
 #
 # O script é idempotente: rodar de novo sobre um ambiente já montado apenas
 # atualiza o código e reinicia o servidor.
@@ -23,6 +22,13 @@ BRANCH="${BRANCH:-main}"
 REPO="https://github.com/fiap-postech-ia-para-devs-grupo/9IADT-fase-3-tech-challenge.git"
 DESTINO="/content/portal"
 PORTA="${PORTA:-8501}"
+
+# Adapter treinado publicado no Hugging Face. Fica versionado aqui, e não como
+# variável que alguém precisa lembrar de exportar: esquecê-la fazia o portal
+# subir em modo de demonstração sem nenhum erro — só um aviso no meio do log,
+# fácil de passar batido, e a demo ia ao ar com o modelo errado.
+# Continua sobrescrevível por ambiente para testar outro adapter.
+export HF_ADAPTER_REPO="${HF_ADAPTER_REPO:-agendesse/hospital-assistant-llama32-3b-lora}"
 
 echo "==> 1/5  Código (branch ${BRANCH})"
 if [ -d "${DESTINO}/.git" ]; then
@@ -47,12 +53,13 @@ python -m hospital_assistant.db.seed_mock_data
 python -m hospital_assistant.rag.ingest
 
 echo "==> 4/5  Modelo"
-if [ -n "${HF_ADAPTER_REPO:-}" ]; then
-  echo "    adapter: ${HF_ADAPTER_REPO}"
-else
-  echo "    AVISO: HF_ADAPTER_REPO não definido — o portal vai operar em modo de demonstração."
-  echo "    Defina antes de chamar este script para usar o modelo treinado:"
-  echo "      os.environ['HF_ADAPTER_REPO'] = 'agendesse/hospital-assistant-llama32-3b-lora'"
+echo "    adapter: ${HF_ADAPTER_REPO}"
+if ! python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"; then
+  echo
+  echo "    AVISO: nenhuma GPU visível. O carregamento em 4-bit exige CUDA, então o" >&2
+  echo "    portal vai subir em modo de demonstração — as respostas NÃO virão do" >&2
+  echo "    modelo treinado. Troque o ambiente de execução para T4 e rode de novo." >&2
+  echo
 fi
 
 echo "==> 5/5  Servidor na porta ${PORTA}"
