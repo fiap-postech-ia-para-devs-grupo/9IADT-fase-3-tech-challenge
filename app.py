@@ -1265,9 +1265,10 @@ def _formulario_laudo(registro_id: int) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Pronto para emissão."
+        "Laudo concluído: o PDF pode ser baixado na listagem."
         if completo
-        else "Faltam dados que só o médico preenche: paciente, anamnese e prescrição."
+        else "Use **Salvar rascunho** para guardar o que já escreveu, e **Concluir laudo** "
+        "quando paciente, anamnese e prescrição estiverem preenchidos."
     )
 
     # Cabeçalho com quem é quem. A trilha guarda quem aprovou; quem solicitou
@@ -1330,10 +1331,16 @@ def _formulario_laudo(registro_id: int) -> None:
         med_dose = registro[1].text_input("Dose", placeholder="1 g EV")
         med_freq = registro[2].text_input("Frequência", placeholder="12/12h")
 
-        if st.form_submit_button("Salvar laudo", type="primary"):
-            # Salva mesmo incompleto: o médico pode escrever a anamnese, sair
-            # para conferir um exame e voltar. Voltar para a listagem depois de
-            # salvar é o que fecha o ciclo — de lá ele vê o que acabou de fazer.
+        # Duas ações, porque são duas intenções diferentes. Um botão só, que
+        # salvava incompleto e voltava em silêncio, não dizia se o laudo ficou
+        # pronto — e "salvei" parecia "terminei".
+        botoes = st.columns([1, 1, 3])
+        rascunhar = botoes[0].form_submit_button("Salvar rascunho")
+        concluir = botoes[1].form_submit_button("Concluir laudo", type="primary")
+
+        if rascunhar:
+            # Incompleto é aceito aqui: o médico escreve a anamnese, sai para
+            # conferir um exame e volta sem perder o texto.
             laudo.salvar_rascunho(
                 registro_id,
                 anamnese,
@@ -1342,9 +1349,49 @@ def _formulario_laudo(registro_id: int) -> None:
                 risco if risco in laudo.RISCOS else None,
                 alerta.strip() or None,
             )
-            _registrar_no_prontuario(paciente_id, med_nome, med_dose, med_freq, alerta, risco)
-            st.session_state[EDITANDO] = None
+            st.toast("Rascunho salvo.")
             st.rerun()
+
+        if concluir:
+            faltando = _o_que_falta(paciente_id, anamnese, prescricao)
+            if faltando:
+                st.error(
+                    "Para concluir o laudo, preencha: " + ", ".join(faltando) + ".",
+                    icon="⛔",
+                )
+            else:
+                laudo.salvar_rascunho(
+                    registro_id,
+                    anamnese,
+                    prescricao,
+                    paciente_id,
+                    risco if risco in laudo.RISCOS else None,
+                    alerta.strip() or None,
+                )
+                _registrar_no_prontuario(
+                    paciente_id, med_nome, med_dose, med_freq, alerta, risco
+                )
+                st.toast("Laudo concluído.")
+                # Voltar para a listagem fecha o ciclo: de lá ele vê o que
+                # acabou de produzir, e pode baixar o PDF.
+                st.session_state[EDITANDO] = None
+                st.rerun()
+
+
+def _o_que_falta(paciente_id: str | None, anamnese: str, prescricao: str) -> list[str]:
+    """Campos obrigatórios ainda vazios, nomeados como aparecem na tela.
+
+    Nomear cada um é o que separa um erro útil de um "preencha os campos
+    obrigatórios" que obriga o médico a caçar qual deles ficou em branco.
+    """
+    faltando = []
+    if not paciente_id:
+        faltando.append("paciente")
+    if not anamnese.strip():
+        faltando.append("anamnese")
+    if not prescricao.strip():
+        faltando.append("prescrição")
+    return faltando
 
 
 def _registrar_no_prontuario(

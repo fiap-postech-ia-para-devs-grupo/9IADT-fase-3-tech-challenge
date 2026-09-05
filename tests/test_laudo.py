@@ -203,3 +203,15 @@ def test_tipografia_fora_do_latin1_nao_derruba_a_emissao() -> None:
     conteudo = _pdf(anamnese="Quadro — febril · com ≥ 39 °C e “tosse seca”…")
 
     assert conteudo.startswith(b"%PDF-")
+
+
+# --- o que falta para concluir ----------------------------------------------
+
+
+def test_campos_faltantes_sao_nomeados() -> None:
+    """"Preencha os campos obrigatórios" obriga o médico a caçar qual faltou."""
+    import app
+
+    assert app._o_que_falta(None, "", "") == ["paciente", "anamnese", "prescrição"]
+    assert app._o_que_falta("1", _ANAMNESE, "  ") == ["prescrição"]
+    assert app._o_que_falta("1", _ANAMNESE, _PRESCRICAO) == []
