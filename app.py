@@ -906,44 +906,139 @@ def modulo_medicos() -> None:
 # ---------------------------------------------------------------------------
 
 
+# Qual laudo está sendo editado. `None` mostra a listagem — a tela abre pelo que
+# já existe, e emitir é uma ação a partir dali, não o estado inicial.
+EDITANDO = "laudo_em_edicao"
+
+
 def modulo_laudos() -> None:
     st.markdown("### Laudos")
+
+    em_edicao = st.session_state.get(EDITANDO)
+    if em_edicao is None:
+        _lista_laudos()
+    else:
+        _formulario_laudo(em_edicao)
+
+
+def _situacao(linha: AuditRow) -> str:
+    """Em que pé está o laudo de uma análise validada."""
+    rascunho = laudo.obter_rascunho(linha["id"])
+    paciente_id = linha["paciente_id"] or rascunho["paciente_id"]
+    if laudo.esta_completo(linha["id"], paciente_id):
+        return "laudo_concluido"
+    if rascunho["anamnese"] or rascunho["prescricao"]:
+        return "laudo_pendente"
+    return "sem_laudo"
+
+
+def _lista_laudos() -> None:
+    """Laudos já iniciados, com a emissão de um novo como ação do topo."""
+    validadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
+    situacoes = {linha["id"]: _situacao(linha) for linha in validadas}
+    com_laudo = [linha for linha in validadas if situacoes[linha["id"]] != "sem_laudo"]
+    disponiveis = [linha for linha in validadas if situacoes[linha["id"]] == "sem_laudo"]
+
     st.caption(
-        "Documento gerado a partir de uma resposta já validada, com o médico responsável "
-        "identificado. Só respostas aprovadas aparecem aqui."
+        "Documentos emitidos a partir de análises validadas. Cada um traz a anamnese e a "
+        "prescrição do médico responsável."
     )
 
-    validadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
-    if not validadas:
-        st.info(
-            "Nenhuma resposta aprovada ainda. Aprove uma na fila de validação para poder "
-            "emitir o laudo."
-        )
+    acao = st.columns([1, 3])
+    if acao[0].button(
+        "Emitir laudo", type="primary", use_container_width=True, disabled=not disponiveis
+    ):
+        st.session_state[EDITANDO] = disponiveis[0]["id"]
+        st.rerun()
+    if not disponiveis:
+        acao[1].caption("Todas as análises validadas já têm laudo. Aprove outra na fila.")
+
+    if not com_laudo:
+        st.info("Nenhum laudo ainda. Use **Emitir laudo** para começar o primeiro.")
         return
 
-    # Só o que ainda não virou laudo. Manter as concluídas na mesma lista fazia
-    # o médico procurar o que falta fazer no meio do que já foi feito; as
-    # emitidas ficam numa seção própria, para reimpressão.
-    emitidas = [
+    pacientes = {p["id"]: p for p in list_patients()}
+    for linha in com_laudo:
+        _linha_da_grid(linha, pacientes, situacoes[linha["id"]])
+
+
+def _linha_da_grid(linha: AuditRow, pacientes: dict[str, Any], situacao: str) -> None:
+    """Uma linha da listagem, com as ações de abrir, visualizar e baixar.
+
+    Cada linha é um container e não uma linha de `st.dataframe` porque a tabela
+    do Streamlit não comporta botão por registro — e sem botão não haveria como
+    ver ou baixar o documento sem sair da listagem.
+    """
+    registro_id = linha["id"]
+    rascunho = laudo.obter_rascunho(registro_id)
+    paciente = pacientes.get(linha["paciente_id"] or rascunho["paciente_id"] or "")
+    concluido = situacao == "laudo_concluido"
+
+    with st.container(border=True):
+        colunas = st.columns([3, 2, 2, 1, 1])
+        colunas[0].markdown(f"**{paciente['nome'] if paciente else 'Paciente não definido'}**")
+        colunas[0].caption(ui.resumir_texto(linha["pergunta"], limite=70))
+        colunas[1].caption("Validado por")
+        colunas[1].markdown(linha["aprovador"] or "—")
+        colunas[2].markdown(ui.badge_status(situacao), unsafe_allow_html=True)
+        colunas[2].caption(ui.formatar_data_hora(str(linha["timestamp_aprovacao"] or "")))
+
+        if colunas[3].button("Abrir", key=f"abrir-{registro_id}", use_container_width=True):
+            st.session_state[EDITANDO] = registro_id
+            st.rerun()
+
+        if not concluido:
+            colunas[4].caption("incompleto")
+            return
+
+        documento = laudo.gerar(
+            dict(linha), paciente, rascunho["anamnese"], rascunho["prescricao"]
+        )
+        colunas[4].download_button(
+            "Baixar",
+            data=documento,
+            file_name=f"laudo-{registro_id}.md",
+            mime="text/markdown",
+            key=f"baixar-{registro_id}",
+            use_container_width=True,
+        )
+        with st.expander("Visualizar"):
+            st.markdown(documento)
+
+
+def _formulario_laudo(registro_id: int) -> None:
+    """Emissão e edição de um laudo."""
+    validadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
+    por_id = {linha["id"]: linha for linha in validadas}
+
+    if st.button("← Voltar para os laudos"):
+        st.session_state[EDITANDO] = None
+        st.rerun()
+
+    if registro_id not in por_id:
+        st.warning("Essa análise não está mais disponível para laudo.")
+        return
+
+    # Trocar de análise sem voltar à listagem. As opções são as que ainda não
+    # viraram laudo, mais a que está aberta.
+    disponiveis = [
         linha
         for linha in validadas
-        if laudo.esta_completo(linha["id"], linha["paciente_id"])
+        if _situacao(linha) == "sem_laudo" or linha["id"] == registro_id
     ]
-    aprovadas = [linha for linha in validadas if linha not in emitidas]
-
-    if not aprovadas:
-        st.success("Todas as análises validadas já têm laudo emitido.")
-        _laudos_emitidos(emitidas)
-        return
-
     rotulos_laudo = {
-        f"nº {linha['id']} · {ui.resumir_texto(linha['pergunta'], limite=70)}": linha
-        for linha in aprovadas
+        f"nº {linha['id']} · {ui.resumir_texto(linha['pergunta'], limite=60)}": linha["id"]
+        for linha in disponiveis
     }
-    escolha = st.selectbox("Resposta validada", list(rotulos_laudo))
-    linha = rotulos_laudo[escolha]
-    registro_id = linha["id"]
+    atual = next(rotulo for rotulo, i in rotulos_laudo.items() if i == registro_id)
+    escolha = st.selectbox(
+        "Análise validada", list(rotulos_laudo), index=list(rotulos_laudo).index(atual)
+    )
+    if rotulos_laudo[escolha] != registro_id:
+        st.session_state[EDITANDO] = rotulos_laudo[escolha]
+        st.rerun()
 
+    linha = por_id[registro_id]
     rascunho = laudo.obter_rascunho(registro_id)
     consulta = conhecimento_store.obter(registro_id)
 
@@ -952,12 +1047,14 @@ def modulo_laudos() -> None:
     paciente_id = linha["paciente_id"] or rascunho["paciente_id"]
     if not linha["paciente_id"]:
         por_rotulo = {f"{p['nome']} ({p['prontuario']})": p["id"] for p in list_patients()}
-        atual = next((r for r, i in por_rotulo.items() if i == rascunho["paciente_id"]), None)
+        anterior = next(
+            (rotulo for rotulo, i in por_rotulo.items() if i == rascunho["paciente_id"]), None
+        )
         opcoes = ["Selecione…", *por_rotulo]
         selecionado = st.selectbox(
             "Paciente do laudo",
             opcoes,
-            index=opcoes.index(atual) if atual else 0,
+            index=opcoes.index(anterior) if anterior else 0,
             help="A consulta foi feita sem prontuário vinculado.",
         )
         paciente_id = por_rotulo.get(selecionado)
@@ -1000,79 +1097,25 @@ def modulo_laudos() -> None:
     # quem assina.
     with st.form(f"laudo-{registro_id}"):
         anamnese = st.text_area(
-            "Anamnese", value=rascunho["anamnese"], height=140,
+            "Anamnese",
+            value=rascunho["anamnese"],
+            height=140,
             placeholder="Quadro clínico, história e exame físico.",
         )
         prescricao = st.text_area(
-            "Prescrição", value=rascunho["prescricao"], height=140,
+            "Prescrição",
+            value=rascunho["prescricao"],
+            height=140,
             placeholder="Medicação, dose, via e posologia, sob responsabilidade do prescritor.",
         )
         if st.form_submit_button("Salvar laudo", type="primary"):
             # Salva mesmo incompleto: o médico pode escrever a anamnese, sair
-            # para conferir um exame e voltar.
+            # para conferir um exame e voltar. Voltar para a listagem depois de
+            # salvar é o que fecha o ciclo — de lá ele vê o que acabou de fazer.
             laudo.salvar_rascunho(registro_id, anamnese, prescricao, paciente_id)
+            st.session_state[EDITANDO] = None
             st.rerun()
 
-    try:
-        documento = laudo.gerar(
-            dict(linha),
-            paciente,
-            anamnese=rascunho["anamnese"],
-            prescricao=rascunho["prescricao"],
-        )
-    except laudo.LaudoIncompleto as erro:
-        st.info(f"{erro} Preencha e salve para liberar a emissão.", icon="📝")
-        return
-
-    with st.container(border=True):
-        st.markdown(documento)
-
-    st.download_button(
-        "Baixar laudo",
-        data=documento,
-        file_name=f"laudo-{registro_id}.md",
-        mime="text/markdown",
-        type="primary",
-    )
-
-    _laudos_emitidos(emitidas)
-
-
-def _laudos_emitidos(linhas: list[AuditRow]) -> None:
-    """Laudos já concluídos, para reimpressão.
-
-    Ficam fora da lista de emissão para ela mostrar só o que falta fazer, mas
-    continuam acessíveis: um laudo emitido é documento do paciente, e sumir da
-    tela depois de gerado obrigaria a refazer o que já foi assinado.
-    """
-    if not linhas:
-        return
-
-    pacientes = {p["id"]: p for p in list_patients()}
-
-    st.markdown("#### Laudos emitidos")
-    for linha in linhas:
-        registro_id = linha["id"]
-        rascunho = laudo.obter_rascunho(registro_id)
-        paciente = pacientes.get(linha["paciente_id"] or rascunho["paciente_id"] or "")
-        with st.expander(
-            f"nº {registro_id} · {paciente['nome'] if paciente else 'sem paciente'} · "
-            f"{ui.resumir_texto(linha['pergunta'], limite=60)}"
-        ):
-            documento = laudo.gerar(
-                dict(linha),
-                paciente,
-                anamnese=rascunho["anamnese"],
-                prescricao=rascunho["prescricao"],
-            )
-            st.markdown(documento)
-            st.download_button(
-                "Baixar",
-                data=documento,
-                file_name=f"laudo-{registro_id}.md",
-                mime="text/markdown",
-                key=f"baixar-emitido-{registro_id}",
-            )
 
 
 PAGINAS = {

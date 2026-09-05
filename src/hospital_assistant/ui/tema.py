@@ -51,6 +51,7 @@ CORES_STATUS: dict[str, tuple[str, str, str]] = {
     # chaves próprias: na tela de laudos a resposta **já foi validada**, e
     # reaproveitar "Pendente de validação" dizia ao médico que faltava algo que
     # ele acabara de fazer.
+    "sem_laudo": (NEUTRO, NEUTRO_FUNDO, "Sem laudo"),
     "laudo_pendente": (PENDENTE, PENDENTE_FUNDO, "Pendente de conclusão"),
     "laudo_concluido": (APROVADO, APROVADO_FUNDO, "Laudo concluído"),
 }
