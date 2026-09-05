@@ -39,6 +39,49 @@ SYSTEM_PROMPT = (
 )
 
 
+# Abaixo disto o trecho recuperado não sustenta a resposta.
+#
+# O retriever devolve sempre os três mais próximos, mesmo quando o corpus não
+# tem nada sobre o assunto — "mais próximo" não é "relevante". Numa pergunta
+# sobre vômito, diarreia e tosse seca, com um corpus que só cobre sepse, dor
+# torácica e crise hipertensiva, os três chunks vieram entre 0.38 e 0.47 e o
+# modelo os tratou como autoritativos: respondeu com antibiótico de amplo
+# espectro para um quadro gastrointestinal.
+#
+# Contexto irrelevante é pior que contexto nenhum. Sem nada, o system prompt
+# manda dizer que não sabe; com algo fraco, o modelo ancora no que recebeu.
+LIMIAR_RELEVANCIA = 0.55
+
+
+def filtrar_relevantes(contexto_rag: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Descarta trechos que não sustentam a resposta.
+
+    Chunk sem score passa: vem do caminho de treino, onde o contexto é o
+    abstract do próprio exemplo e a relevância é dada.
+    """
+    relevantes = []
+    for chunk in contexto_rag:
+        score = chunk.get("score")
+        if not isinstance(score, int | float) or float(score) >= LIMIAR_RELEVANCIA:
+            relevantes.append(chunk)
+    return relevantes
+
+
+# Recusar seco tornaria o assistente inútil para qualquer coisa fora dos poucos
+# protocolos indexados. O problema nunca foi ele usar conhecimento clínico geral
+# — foi vesti-lo de protocolo institucional. A instrução separa as duas coisas:
+# pode orientar, desde que declare de onde a orientação vem.
+SEM_PROTOCOLO = (
+    "## Protocolos e referências recuperados\n"
+    "Nenhum protocolo institucional do hospital cobre esta pergunta.\n"
+    "Você pode orientar com base em conhecimento clínico geral, mas precisa "
+    "abrir a resposta declarando que não há protocolo institucional sobre o "
+    "assunto e que o que segue é orientação geral, não conduta padronizada "
+    "deste hospital. Não atribua ao hospital nada que não veio do contexto, e "
+    "não cite protocolos que não foram fornecidos."
+)
+
+
 def _bloco_contexto(contexto_rag: list[dict[str, Any]]) -> str:
     linhas = ["## Protocolos e referências recuperados"]
     for i, chunk in enumerate(contexto_rag, start=1):
@@ -53,7 +96,18 @@ def _bloco_contexto(contexto_rag: list[dict[str, Any]]) -> str:
 
 
 def _bloco_exames(exames_pendentes: list[dict[str, Any]]) -> str:
-    linhas = ["## Exames pendentes deste paciente"]
+    """Exames pendentes, explicitamente marcados como contexto administrativo.
+
+    Sem a ressalva, o modelo os incorpora ao raciocínio clínico: numa pergunta
+    sobre vômito e diarreia, sugeriu "ressonância magnética de joelho" porque o
+    paciente tinha uma pendente. A lista responde "o que está em aberto para
+    este paciente", não "o que investigar nesta queixa".
+    """
+    linhas = [
+        "## Exames pendentes deste paciente",
+        "(Pendências administrativas do prontuário. Não presuma relação com a "
+        "queixa atual; cite algum apenas se for pertinente a ela.)",
+    ]
     for exame in exames_pendentes:
         tipo = exame.get("tipo") or exame.get("nome") or "exame"
         solicitado = exame.get("data_solicitacao")
@@ -74,8 +128,13 @@ def build_messages(
     """
     partes: list[str] = []
 
-    if contexto_rag:
-        partes.append(_bloco_contexto(contexto_rag))
+    relevantes = filtrar_relevantes(contexto_rag) if contexto_rag else []
+    if relevantes:
+        partes.append(_bloco_contexto(relevantes))
+    elif contexto_rag:
+        # Houve busca e nada passou no limiar. Dizer isso é diferente de omitir
+        # a seção: omitir deixaria o modelo achar que ninguém consultou nada.
+        partes.append(SEM_PROTOCOLO)
     if exames_pendentes:
         partes.append(_bloco_exames(exames_pendentes))
 
