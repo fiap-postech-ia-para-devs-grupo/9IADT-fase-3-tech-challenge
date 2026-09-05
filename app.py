@@ -34,12 +34,18 @@ Duas correções de comportamento em relação às telas originais:
 from __future__ import annotations
 
 import random
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 
-from hospital_assistant.db.patient_tools import get_patient_history, list_patients
+from hospital_assistant.db.patient_tools import (
+    get_patient_history,
+    list_patients,
+    registrar_alerta,
+    registrar_medicacao,
+)
 from hospital_assistant.graph.flow import run
 from hospital_assistant.llm.model_loader import (
     AmbienteSemModelo,
@@ -79,7 +85,7 @@ MENU: list[tuple[str, list[tuple[str, str]]]] = [
         ("assistente", "Assistente"),
         ("validacao", "Fila de validação"),
         ("conhecimento", "Base de conhecimento"),
-        ("laudos", "Laudos"),
+        ("laudos", "Prontuário eletrônico"),
     ]),
     ("Cadastro", [
         ("pacientes", "Pacientes"),
@@ -654,9 +660,81 @@ def _atendimentos_na_base(busca: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _risco_atual(paciente_id: str) -> tuple[str | None, str | None]:
+    """Classificação de risco do atendimento mais recente do paciente.
+
+    Vem do laudo, e não do cadastro: risco é avaliação de um momento. Devolve
+    também a data, porque uma classificação de três meses atrás não diz o mesmo
+    que a de hoje — e sem a data quem lê não tem como saber a diferença.
+    """
+    atendimentos = [
+        linha
+        for linha in carregar_registros()
+        if linha["paciente_id"] == paciente_id and linha["status"] == "aprovado"
+    ]
+    for linha in sorted(atendimentos, key=lambda r: r["timestamp"], reverse=True):
+        rascunho = laudo.obter_rascunho(linha["id"])
+        if rascunho["risco"]:
+            return rascunho["risco"], linha["timestamp"]
+    return None, None
+
+
+def _evolucao(historico: dict[str, Any]) -> list[dict[str, str]]:
+    """Eventos do prontuário em ordem cronológica, do mais recente ao mais antigo.
+
+    As abas separam por tipo, o que responde "quais exames ele tem" mas não
+    "o que aconteceu com ele". A evolução responde a segunda: exame pedido,
+    medicação iniciada e alerta aberto na mesma linha do tempo, que é como o
+    caso de fato se desenrolou.
+    """
+    eventos: list[dict[str, str]] = []
+
+    for exame in historico["exames"]:
+        concluido = exame["status"] == "concluido"
+        eventos.append(
+            {
+                "data": exame["data_resultado"] if concluido else exame["data_solicitacao"],
+                "tipo": "Exame",
+                "icone": "🧪",
+                "descricao": (
+                    f"{exame['tipo']} — {exame['resultado']}"
+                    if concluido and exame["resultado"]
+                    else f"{exame['tipo']} solicitado"
+                ),
+            }
+        )
+
+    for medicacao in historico["medicacoes"]:
+        eventos.append(
+            {
+                "data": medicacao["data_inicio"],
+                "tipo": "Medicação",
+                "icone": "💊",
+                "descricao": (
+                    f"{medicacao['nome']} {medicacao['dosagem']} — {medicacao['frequencia']}"
+                ),
+            }
+        )
+
+    for alerta in historico["alertas"]:
+        eventos.append(
+            {
+                "data": alerta["data"],
+                "tipo": "Alerta",
+                "icone": "⚠️" if not alerta["resolvido"] else "✅",
+                "descricao": (
+                    f"{alerta['descricao']} ({alerta['severidade']})"
+                    + (" — resolvido" if alerta["resolvido"] else "")
+                ),
+            }
+        )
+
+    return sorted(eventos, key=lambda e: e["data"] or "", reverse=True)
+
+
 def modulo_pacientes() -> None:
     st.markdown("### Pacientes")
-    st.caption("Consulta ao cadastro e ao prontuário. Somente leitura.")
+    st.caption("Cadastro, evolução clínica e prontuário.")
 
     pacientes = list_patients()
     if not pacientes:
@@ -676,17 +754,37 @@ def modulo_pacientes() -> None:
     )
 
     historico = get_patient_history(escolha)
-    indicadores = st.columns(3)
-    indicadores[0].markdown(ui.metrica(len(historico["exames"]), "Exames"), unsafe_allow_html=True)
+    risco, avaliado_em = _risco_atual(escolha)
+
+    indicadores = st.columns(4)
+    indicadores[0].markdown(
+        ui.metrica(len(historico["exames"]), "Exames"), unsafe_allow_html=True
+    )
     indicadores[1].markdown(
         ui.metrica(len(historico["medicacoes"]), "Medicações"), unsafe_allow_html=True
     )
     indicadores[2].markdown(
-        ui.metrica(len(historico["alertas"]), "Alertas"), unsafe_allow_html=True
+        ui.metrica(
+            len([a for a in historico["alertas"] if not a["resolvido"]]), "Alertas abertos"
+        ),
+        unsafe_allow_html=True,
     )
+    indicadores[3].markdown(ui.cartao_risco(risco, avaliado_em), unsafe_allow_html=True)
 
-    abas = st.tabs(["Exames", "Medicações", "Alertas"])
+    abas = st.tabs(["Evolução", "Exames", "Medicações", "Alertas"])
+
     with abas[0]:
+        eventos = _evolucao(historico)
+        if not eventos:
+            st.info("Nenhum evento registrado para este paciente.")
+        for evento in eventos:
+            with st.container(border=True):
+                colunas = st.columns([1, 2, 7])
+                colunas[0].markdown(evento["icone"])
+                colunas[1].caption(ui.formatar_data_hora(evento["data"]).split(" ")[0])
+                colunas[2].markdown(f"**{evento['tipo']}** · {evento['descricao']}")
+
+    with abas[1]:
         st.dataframe(
             ui.tabela_generica(
                 historico["exames"],
@@ -695,7 +793,7 @@ def modulo_pacientes() -> None:
             use_container_width=True,
             hide_index=True,
         )
-    with abas[1]:
+    with abas[2]:
         st.dataframe(
             ui.tabela_generica(
                 historico["medicacoes"], ["nome", "dosagem", "frequencia", "data_inicio"]
@@ -703,7 +801,7 @@ def modulo_pacientes() -> None:
             use_container_width=True,
             hide_index=True,
         )
-    with abas[2]:
+    with abas[3]:
         st.dataframe(
             ui.tabela_generica(
                 historico["alertas"], ["descricao", "severidade", "data", "resolvido"]
@@ -909,10 +1007,11 @@ def modulo_medicos() -> None:
 # Qual laudo está sendo editado. `None` mostra a listagem — a tela abre pelo que
 # já existe, e emitir é uma ação a partir dali, não o estado inicial.
 EDITANDO = "laudo_em_edicao"
+LAUDOS_POR_PAGINA = 3
 
 
 def modulo_laudos() -> None:
-    st.markdown("### Laudos")
+    st.markdown("### Prontuário eletrônico")
 
     em_edicao = st.session_state.get(EDITANDO)
     if em_edicao is None:
@@ -940,8 +1039,8 @@ def _lista_laudos() -> None:
     disponiveis = [linha for linha in validadas if situacoes[linha["id"]] == "sem_laudo"]
 
     st.caption(
-        "Documentos emitidos a partir de análises validadas. Cada um traz a anamnese e a "
-        "prescrição do médico responsável."
+        "Registro clínico dos atendimentos: anamnese, classificação de risco, conduta "
+        "validada e prescrição do médico responsável."
     )
 
     acao = st.columns([1, 3])
@@ -954,12 +1053,32 @@ def _lista_laudos() -> None:
         acao[1].caption("Todas as análises validadas já têm laudo. Aprove outra na fila.")
 
     if not com_laudo:
-        st.info("Nenhum laudo ainda. Use **Emitir laudo** para começar o primeiro.")
+        st.info("Nenhum registro ainda. Use **Emitir laudo** para abrir o primeiro.")
         return
 
     pacientes = {p["id"]: p for p in list_patients()}
-    for linha in com_laudo:
+
+    # Cada laudo ocupa uma linha alta, com botões e expander. Passando de três a
+    # tela vira rolagem longa e o botão de emitir sai de vista.
+    pagina = st.session_state.get("pagina_laudos", 1)
+    itens, total_paginas = ui.paginar(com_laudo, pagina, LAUDOS_POR_PAGINA)
+
+    for linha in itens:
         _linha_da_grid(linha, pacientes, situacoes[linha["id"]])
+
+    if total_paginas > 1:
+        navegacao = st.columns([1, 2, 1])
+        if navegacao[0].button("← Anteriores", disabled=pagina <= 1):
+            st.session_state["pagina_laudos"] = pagina - 1
+            st.rerun()
+        navegacao[1].markdown(
+            f"<div style='text-align:center;color:{tema.TEXTO_TENUE};font-size:.82rem'>"
+            f"Página {min(pagina, total_paginas)} de {total_paginas}</div>",
+            unsafe_allow_html=True,
+        )
+        if navegacao[2].button("Próximos →", disabled=pagina >= total_paginas):
+            st.session_state["pagina_laudos"] = pagina + 1
+            st.rerun()
 
 
 def _linha_da_grid(linha: AuditRow, pacientes: dict[str, Any], situacao: str) -> None:
@@ -1011,7 +1130,7 @@ def _formulario_laudo(registro_id: int) -> None:
     validadas = [linha for linha in carregar_registros() if linha["status"] == "aprovado"]
     por_id = {linha["id"]: linha for linha in validadas}
 
-    if st.button("← Voltar para os laudos"):
+    if st.button("← Voltar para o prontuário"):
         st.session_state[EDITANDO] = None
         st.rerun()
 
@@ -1096,6 +1215,14 @@ def _formulario_laudo(registro_id: int) -> None:
     # base recusava — num documento assinado, essa parte precisa ter saído de
     # quem assina.
     with st.form(f"laudo-{registro_id}"):
+        risco = st.selectbox(
+            "Classificação de risco",
+            ["Não classificado", *laudo.RISCOS],
+            index=(
+                list(laudo.RISCOS).index(rascunho["risco"]) + 1 if rascunho["risco"] else 0
+            ),
+            format_func=lambda chave: laudo.RISCOS.get(chave, "Não classificado"),
+        )
         anamnese = st.text_area(
             "Anamnese",
             value=rascunho["anamnese"],
@@ -1108,14 +1235,71 @@ def _formulario_laudo(registro_id: int) -> None:
             height=140,
             placeholder="Medicação, dose, via e posologia, sob responsabilidade do prescritor.",
         )
+        alerta = st.text_input(
+            "Alerta para a equipe (opcional)",
+            value=rascunho["alerta"] or "",
+            placeholder="Ex.: reavaliar em 6 h; risco de deterioração.",
+        )
+
+        # O prontuário guarda medicação em campos separados, e a prescrição é
+        # texto livre. Quebrar o texto por heurística produziria registro
+        # clínico errado, então o que vai para o histórico é digitado à parte —
+        # e só se o médico quiser.
+        st.caption("Registrar no prontuário do paciente (opcional)")
+        registro = st.columns(3)
+        med_nome = registro[0].text_input("Medicamento", placeholder="Ceftriaxona")
+        med_dose = registro[1].text_input("Dose", placeholder="1 g EV")
+        med_freq = registro[2].text_input("Frequência", placeholder="12/12h")
+
         if st.form_submit_button("Salvar laudo", type="primary"):
             # Salva mesmo incompleto: o médico pode escrever a anamnese, sair
             # para conferir um exame e voltar. Voltar para a listagem depois de
             # salvar é o que fecha o ciclo — de lá ele vê o que acabou de fazer.
-            laudo.salvar_rascunho(registro_id, anamnese, prescricao, paciente_id)
+            laudo.salvar_rascunho(
+                registro_id,
+                anamnese,
+                prescricao,
+                paciente_id,
+                risco if risco in laudo.RISCOS else None,
+                alerta.strip() or None,
+            )
+            _registrar_no_prontuario(paciente_id, med_nome, med_dose, med_freq, alerta, risco)
             st.session_state[EDITANDO] = None
             st.rerun()
 
+
+def _registrar_no_prontuario(
+    paciente_id: str | None,
+    medicamento: str,
+    dose: str,
+    frequencia: str,
+    alerta: str,
+    risco: str,
+) -> None:
+    """Leva prescrição e alerta do laudo para o histórico do paciente.
+
+    Sem isto o laudo diria uma coisa e o prontuário outra — e é o prontuário que
+    a próxima consulta ao assistente vai ler.
+
+    A severidade do alerta vem da classificação de risco do atendimento: são o
+    mesmo julgamento clínico, e pedir os dois separadamente abriria espaço para
+    se contradizerem no mesmo documento.
+    """
+    if not paciente_id:
+        return
+
+    hoje = datetime.now(UTC).date().isoformat()
+
+    if medicamento.strip():
+        registrar_medicacao(
+            paciente_id, medicamento.strip(), dose.strip() or "—", frequencia.strip() or "—", hoje
+        )
+        st.toast(f"{medicamento.strip()} registrado no prontuário.")
+
+    if alerta.strip():
+        severidade = {"vermelho": "alta", "amarelo": "media"}.get(risco, "baixa")
+        registrar_alerta(paciente_id, alerta.strip(), severidade, hoje)
+        st.toast("Alerta registrado no prontuário.")
 
 
 PAGINAS = {

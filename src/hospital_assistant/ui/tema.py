@@ -56,6 +56,15 @@ CORES_STATUS: dict[str, tuple[str, str, str]] = {
     "laudo_concluido": (APROVADO, APROVADO_FUNDO, "Laudo concluído"),
 }
 
+# Cores da classificação de risco. Seguem a convenção de triagem que qualquer
+# equipe de pronto-socorro já lê sem legenda — inventar uma paleta própria aqui
+# custaria clareza numa informação que precisa ser entendida num relance.
+CORES_RISCO: dict[str, tuple[str, str]] = {
+    "verde": (APROVADO, APROVADO_FUNDO),
+    "amarelo": (PENDENTE, PENDENTE_FUNDO),
+    "vermelho": (ALERTA, ALERTA_FUNDO),
+}
+
 CORES_CATEGORIA: dict[str, tuple[str, str]] = {
     "protocolo": (PRIMARIA, PRIMARIA_CLARA),
     "exames": ("#1B4FA8", "#E6EDF9"),

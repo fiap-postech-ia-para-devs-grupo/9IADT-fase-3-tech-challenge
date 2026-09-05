@@ -123,3 +123,43 @@ def get_patient_history(paciente_id: str) -> PatientHistory:
         }
     finally:
         conn.close()
+
+
+# --- escrita ----------------------------------------------------------------
+#
+# As funções acima só leem, porque o grafo do assistente só consulta. Estas
+# existem para o laudo: quando o médico conclui um documento com prescrição, o
+# medicamento precisa chegar ao prontuário — senão o laudo diz uma coisa e o
+# histórico do paciente diz outra.
+#
+# Continuam parametrizadas pelo mesmo motivo das de leitura: nada de SQL livre
+# sobre dado clínico.
+
+
+def registrar_medicacao(
+    paciente_id: str, nome: str, dosagem: str, frequencia: str, data_inicio: str
+) -> int:
+    """Acrescenta uma medicação ao prontuário. Devolve o id criado."""
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO medicacoes (paciente_id, nome, dosagem, frequencia, data_inicio)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (paciente_id, nome, dosagem, frequencia, data_inicio),
+        )
+        return int(cursor.lastrowid or 0)
+
+
+def registrar_alerta(paciente_id: str, descricao: str, severidade: str, data: str) -> int:
+    """Acrescenta um alerta ao prontuário. Devolve o id criado.
+
+    `severidade` é validada pelo CHECK do schema; um valor fora de
+    baixa/media/alta levanta `sqlite3.IntegrityError` em vez de gravar algo que
+    a tela não sabe exibir.
+    """
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO alertas (paciente_id, descricao, severidade, data, resolvido)"
+            " VALUES (?, ?, ?, ?, 0)",
+            (paciente_id, descricao, severidade, data),
+        )
+        return int(cursor.lastrowid or 0)

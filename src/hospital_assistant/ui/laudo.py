@@ -37,10 +37,23 @@ logger = logging.getLogger(__name__)
 ARQUIVO = DATA_DIR / "laudos.json"
 
 
+# Classificação de risco do atendimento. Fica no laudo, e não no cadastro do
+# paciente, porque é avaliação de um momento: alguém é de alto risco *naquele*
+# atendimento, não para sempre. Como atributo fixo do paciente, congelaria um
+# julgamento clínico que muda a cada quadro.
+RISCOS: dict[str, str] = {
+    "verde": "Verde — pouco urgente",
+    "amarelo": "Amarelo — urgente",
+    "vermelho": "Vermelho — emergência",
+}
+
+
 class Rascunho(TypedDict):
     anamnese: str
     prescricao: str
     paciente_id: str | None
+    risco: str | None
+    alerta: str | None
 
 
 class RespostaNaoAprovada(RuntimeError):
@@ -71,11 +84,18 @@ def obter_rascunho(audit_id: int) -> Rascunho:
         "anamnese": guardado.get("anamnese", ""),
         "prescricao": guardado.get("prescricao", ""),
         "paciente_id": guardado.get("paciente_id"),
+        "risco": guardado.get("risco"),
+        "alerta": guardado.get("alerta"),
     }
 
 
 def salvar_rascunho(
-    audit_id: int, anamnese: str, prescricao: str, paciente_id: str | None = None
+    audit_id: int,
+    anamnese: str,
+    prescricao: str,
+    paciente_id: str | None = None,
+    risco: str | None = None,
+    alerta: str | None = None,
 ) -> None:
     """Guarda o que o médico preencheu, mesmo incompleto.
 
@@ -91,6 +111,8 @@ def salvar_rascunho(
         "anamnese": anamnese,
         "prescricao": prescricao,
         "paciente_id": paciente_id,
+        "risco": risco,
+        "alerta": alerta,
     }
 
     ARQUIVO.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +152,7 @@ def gerar(
     paciente: dict[str, Any] | None = None,
     anamnese: str = "",
     prescricao: str = "",
+    risco: str | None = None,
 ) -> str:
     """Documento em markdown de uma resposta aprovada e de um laudo completo.
 
@@ -158,11 +181,12 @@ def gerar(
 
     return "\n".join(
         [
-            "# Laudo de apoio à decisão clínica",
+            "# Prontuário eletrônico — laudo de apoio à decisão clínica",
             "",
             f"**Paciente:** {identificacao}  ",
             f"**Emitido em:** {emitido_em}  ",
-            f"**Registro de auditoria:** nº {linha.get('id')}",
+            f"**Registro de auditoria:** nº {linha.get('id')}  ",
+            f"**Classificação de risco:** {RISCOS.get(risco or '', 'não classificado')}",
             "",
             "## Anamnese",
             "",

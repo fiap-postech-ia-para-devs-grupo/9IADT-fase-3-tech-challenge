@@ -132,4 +132,33 @@ def test_rascunho_inexistente_volta_vazio(limpar_auditoria) -> None:
         "anamnese": "",
         "prescricao": "",
         "paciente_id": None,
+        "risco": None,
+        "alerta": None,
     }
+
+
+# --- classificação de risco -------------------------------------------------
+
+
+def test_risco_aparece_no_documento() -> None:
+    documento = laudo.gerar(_APROVADA, _PACIENTE, _ANAMNESE, _PRESCRICAO, risco="vermelho")
+
+    assert "Vermelho — emergência" in documento
+
+
+def test_sem_risco_o_documento_diz_que_nao_foi_classificado() -> None:
+    """Campo em branco sugeriria que a classificação foi esquecida na impressão."""
+    documento = laudo.gerar(_APROVADA, _PACIENTE, _ANAMNESE, _PRESCRICAO)
+
+    assert "não classificado" in documento
+
+
+def test_risco_e_alerta_persistem_no_rascunho(limpar_auditoria) -> None:
+    laudo.salvar_rascunho(
+        8, _ANAMNESE, _PRESCRICAO, paciente_id="1", risco="amarelo", alerta="Reavaliar em 6h"
+    )
+
+    guardado = laudo.obter_rascunho(8)
+
+    assert guardado["risco"] == "amarelo"
+    assert guardado["alerta"] == "Reavaliar em 6h"

@@ -255,3 +255,34 @@ def paginar(linhas: list[Any], pagina: int, por_pagina: int) -> tuple[list[Any],
     pagina = max(1, min(pagina, total))
     inicio = (pagina - 1) * por_pagina
     return linhas[inicio : inicio + por_pagina], total
+
+
+def cartao_risco(risco: str | None, avaliado_em: str | None = None) -> str:
+    """Cartão da classificação de risco, no formato dos demais indicadores.
+
+    Sem classificação, diz isso em vez de ficar em branco: um espaço vazio ao
+    lado de "Exames" e "Alertas" parece dado que não carregou, não ausência de
+    avaliação.
+
+    A data acompanha porque uma classificação de meses atrás não afirma o mesmo
+    que a de hoje, e sem ela quem lê não tem como distinguir.
+    """
+    from hospital_assistant.ui import laudo as _laudo
+
+    if risco not in tema.CORES_RISCO:
+        return (
+            '<div class="metrica">'
+            f'<div class="metrica-valor" style="font-size:1rem;color:{tema.TEXTO_TENUE}">'
+            "Não avaliado</div>"
+            '<div class="metrica-rotulo">Classificação de risco</div></div>'
+        )
+
+    cor, fundo = tema.CORES_RISCO[risco]
+    rotulo = _laudo.RISCOS[risco].split("—")[0].strip()
+    quando = f" · {formatar_data_hora(avaliado_em).split(' ')[0]}" if avaliado_em else ""
+    return (
+        f'<div class="metrica" style="background:{fundo}">'
+        f'<div class="metrica-valor" style="font-size:1.15rem;color:{cor}">'
+        f"{html.escape(rotulo)}</div>"
+        f'<div class="metrica-rotulo">Classificação de risco{html.escape(quando)}</div></div>'
+    )

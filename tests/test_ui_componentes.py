@@ -264,3 +264,22 @@ def test_fontes_agrupadas_ficam_com_o_melhor_score() -> None:
 
     assert "(0.81)" in resultado
     assert "(0.41)" not in resultado
+
+
+# --- classificação de risco -------------------------------------------------
+
+
+def test_cartao_de_risco_traz_cor_e_data() -> None:
+    cartao = ui.cartao_risco("vermelho", "2026-09-05T10:00:00+00:00")
+
+    assert "Vermelho" in cartao
+    assert "05/09/2026" in cartao
+
+
+def test_sem_classificacao_o_cartao_diz_isso() -> None:
+    """Espaço vazio ao lado de Exames e Alertas parece dado que não carregou."""
+    assert "Não avaliado" in ui.cartao_risco(None)
+
+
+def test_risco_desconhecido_nao_quebra() -> None:
+    assert "Não avaliado" in ui.cartao_risco("roxo")
