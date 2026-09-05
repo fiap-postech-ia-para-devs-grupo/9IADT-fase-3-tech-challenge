@@ -186,7 +186,29 @@ def sugestoes(semente: int) -> list[dict[str, Any]]:
     O sorteio usa semente explícita para que a lista só mude quando o usuário
     pedir, e não a cada rerun do Streamlit.
     """
-    itens = list(rotulos.FAQ)
+    itens: list[dict[str, Any]] = list(rotulos.FAQ)
+
+    # A base cresce com o uso: perguntas já respondidas e validadas viram
+    # atalho, senão o assistente ofereceria para sempre as mesmas cinco
+    # perguntas do conjunto estático. Só as aprovadas, pelo mesmo motivo do
+    # cache — sugerir uma pergunta cuja resposta ninguém revisou empurraria o
+    # médico para um caminho não validado.
+    aprovadas = {
+        registro_id
+        for registro_id, decisao in decisoes_store.carregar().items()
+        if decisao.get("status") == "aprovado"
+    }
+    for entrada in conhecimento_store.listar():
+        if entrada["audit_id"] in aprovadas:
+            itens.append(
+                {
+                    "pergunta": entrada["pergunta"],
+                    "resposta": entrada["resposta"],
+                    "categoria": "protocolo",
+                    "fonte": "Atendimento validado nº " + str(entrada["audit_id"]),
+                }
+            )
+
     random.Random(semente).shuffle(itens)
     return itens[:SUGESTOES_POR_VEZ]
 
@@ -265,7 +287,11 @@ def _enviar(pergunta: str, paciente_id: str | None) -> None:
     registros = real_audit_rows()
     if registros:
         conhecimento_store.registrar(
-            registros[-1]["id"], pergunta, resultado["sugestao_llm"], paciente_id
+            registros[-1]["id"],
+            pergunta,
+            resultado["sugestao_llm"],
+            paciente_id,
+            medico=st.session_state.get("medico_solicitante"),
         )
 
 
@@ -399,7 +425,16 @@ def _assistente_conteudo() -> None:
     if not historico:
         _chips_sugestao()
 
-    escolha = st.selectbox("Paciente em atendimento", list(por_rotulo), key="paciente_conversa")
+    contexto = st.columns(2)
+    with contexto[0]:
+        escolha = st.selectbox(
+            "Paciente em atendimento", list(por_rotulo), key="paciente_conversa"
+        )
+    with contexto[1]:
+        # Quem pergunta e quem valida são pessoas diferentes, e a trilha só
+        # guardava a segunda. Sem isto o laudo não tem como dizer de quem partiu
+        # a análise.
+        _seletor_de_medico("Médico solicitante", "medico_solicitante")
     paciente_id = por_rotulo[escolha]
 
     if paciente_id:
@@ -574,6 +609,45 @@ def modulo_conhecimento() -> None:
     for item in itens:
         st.markdown(ui.cartao_faq(item), unsafe_allow_html=True)
 
+    _atendimentos_na_base(busca)
+
+
+def _atendimentos_na_base(busca: str) -> None:
+    """O que a base aprendeu com os atendimentos, separado do conjunto curado.
+
+    Ficam em seção própria porque têm origem e autoridade diferentes: o FAQ é
+    conteúdo revisado e versionado; isto é o que o assistente respondeu num
+    atendimento. A situação de validação aparece em cada um justamente para essa
+    distinção não se perder.
+    """
+    entradas = conhecimento_store.listar()
+    if busca.strip():
+        termo = busca.strip().lower()
+        entradas = [e for e in entradas if termo in e["pergunta"].lower()]
+    if not entradas:
+        return
+
+    decisoes = decisoes_store.carregar()
+
+    st.markdown("#### Aprendido nos atendimentos")
+    st.caption(
+        "Respostas produzidas durante o uso. As validadas viram atalho no assistente e "
+        "podem ser reaproveitadas; as demais ficam aqui como histórico."
+    )
+
+    for entrada in entradas[:20]:
+        decisao = decisoes.get(entrada["audit_id"]) or {}
+        situacao = decisao.get("status", "pendente")
+        with st.container(border=True):
+            cabecalho = st.columns([4, 1])
+            cabecalho[0].markdown(f"**{entrada['pergunta']}**")
+            cabecalho[1].markdown(ui.badge_status(situacao), unsafe_allow_html=True)
+            st.markdown(ui.resumir_texto(entrada["resposta"], limite=260))
+            st.caption(
+                f"Atendimento nº {entrada['audit_id']}"
+                + (f" · solicitado por {entrada['medico']}" if entrada.get("medico") else "")
+            )
+
 
 # ---------------------------------------------------------------------------
 # Módulo: Pacientes
@@ -644,6 +718,38 @@ def modulo_pacientes() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _enriquecer(linhas: list[AuditRow]) -> list[dict[str, Any]]:
+    """Acrescenta às linhas da trilha o que ela não guarda.
+
+    A auditoria grava o **id** do paciente e o nome de quem aprovou. Quem
+    perguntou e como o paciente se chama estão em outros lugares — o cadastro e
+    o registro do atendimento —, e sem eles a tela mostrava "1" na coluna
+    Paciente e nada sobre o solicitante.
+    """
+    pacientes = {p["id"]: p for p in list_patients()}
+
+    enriquecidas: list[dict[str, Any]] = []
+    for linha in linhas:
+        paciente = pacientes.get(linha["paciente_id"] or "")
+        consulta = conhecimento_store.obter(linha["id"])
+        enriquecidas.append(
+            {
+                **linha,
+                "paciente": (
+                    f"{paciente['nome']} ({paciente['prontuario']})" if paciente else None
+                ),
+                "medico_solicitante": consulta["medico"] if consulta else None,
+                # O laudo é o desfecho da análise, não um evento separado na
+                # trilha: marcá-lo aqui evita duplicar a linha só para dizer que
+                # o documento saiu.
+                "tipo_operacao": (
+                    "Análise + laudo" if laudo.esta_completo(linha["id"]) else "Análise"
+                ),
+            }
+        )
+    return enriquecidas
+
+
 def modulo_auditoria() -> None:
     st.markdown("### Auditoria")
     st.caption("Trilha completa de execuções do assistente, com filtros e paginação.")
@@ -693,7 +799,9 @@ def modulo_auditoria() -> None:
     pagina = st.session_state.get("pagina_auditoria", 1)
     itens, total_paginas = ui.paginar(filtrados, pagina, por_pagina)
 
-    st.dataframe(ui.tabela_auditoria(itens), use_container_width=True, hide_index=True)
+    st.dataframe(
+        ui.tabela_auditoria(_enriquecer(itens)), use_container_width=True, hide_index=True
+    )
 
     navegacao = st.columns([1, 2, 1])
     if navegacao[0].button("← Anterior", disabled=pagina <= 1, key="auditoria_anterior"):
@@ -713,8 +821,9 @@ def modulo_auditoria() -> None:
 # Layout
 # ---------------------------------------------------------------------------
 
-def _seletor_de_medico() -> str | None:
-    """Quem está validando, escolhido do cadastro em vez de digitado.
+def _seletor_de_medico(rotulo: str = "Médico responsável pela validação",
+                       chave: str = "aprovador_portal") -> str | None:
+    """Um médico do cadastro, identificado por nome e CRM.
 
     O campo era texto livre: qualquer nome, sem conferência, gravado na trilha
     como responsável clínico pela aprovação. Numa trilha de auditoria o
@@ -727,9 +836,9 @@ def _seletor_de_medico() -> str | None:
         return None
 
     escolha = st.selectbox(
-        "Médico responsável pela validação",
+        rotulo,
         ["Selecione…", *(f"{m['nome']} · {m['crm']}" for m in medicos)],
-        key="aprovador_portal",
+        key=chave,
     )
     return None if escolha == "Selecione…" else escolha
 
@@ -812,7 +921,6 @@ def modulo_laudos() -> None:
         )
         return
 
-    pacientes = {p["id"]: p for p in list_patients()}
     rotulos_laudo = {
         f"nº {linha['id']} · {ui.resumir_texto(linha['pergunta'], limite=70)}": linha
         for linha in aprovadas
@@ -822,16 +930,54 @@ def modulo_laudos() -> None:
     registro_id = linha["id"]
 
     rascunho = laudo.obter_rascunho(registro_id)
-    completo = laudo.esta_completo(registro_id)
+    consulta = conhecimento_store.obter(registro_id)
+
+    # O paciente do laudo é o da consulta; quando ela foi feita sem prontuário
+    # vinculado, o médico escolhe aqui. Um laudo é um documento sobre alguém.
+    paciente_id = linha["paciente_id"] or rascunho["paciente_id"]
+    if not linha["paciente_id"]:
+        por_rotulo = {f"{p['nome']} ({p['prontuario']})": p["id"] for p in list_patients()}
+        atual = next((r for r, i in por_rotulo.items() if i == rascunho["paciente_id"]), None)
+        opcoes = ["Selecione…", *por_rotulo]
+        selecionado = st.selectbox(
+            "Paciente do laudo",
+            opcoes,
+            index=opcoes.index(atual) if atual else 0,
+            help="A consulta foi feita sem prontuário vinculado.",
+        )
+        paciente_id = por_rotulo.get(selecionado)
+
+    paciente = {p["id"]: p for p in list_patients()}.get(paciente_id or "")
+    completo = bool(paciente) and laudo.esta_completo(registro_id, paciente_id)
 
     st.markdown(
-        ui.badge_status("aprovado" if completo else "pendente"), unsafe_allow_html=True
+        ui.badge_status("laudo_concluido" if completo else "laudo_pendente"),
+        unsafe_allow_html=True,
     )
     st.caption(
-        "Laudo concluído, pronto para emissão."
+        "Pronto para emissão."
         if completo
-        else "Pendente de conclusão: anamnese e prescrição são do médico e ainda faltam."
+        else "Faltam dados que só o médico preenche: paciente, anamnese e prescrição."
     )
+
+    # Cabeçalho com quem é quem. A trilha guarda quem aprovou; quem solicitou
+    # vem do registro do atendimento.
+    with st.container(border=True):
+        identificacao = st.columns(3)
+        identificacao[0].markdown("**Paciente**")
+        identificacao[0].markdown(paciente["nome"] if paciente else "— a selecionar")
+        identificacao[1].markdown("**Solicitado por**")
+        identificacao[1].markdown((consulta or {}).get("medico") or "— não informado")
+        identificacao[2].markdown("**Validado por**")
+        identificacao[2].markdown(linha["aprovador"] or "—")
+
+    # Resumo em destaque: quem emite o laudo precisa reler o que foi analisado
+    # sem sair da tela para conferir na fila.
+    st.markdown("#### Resumo da análise")
+    st.info(f"**Questão avaliada:** {linha['pergunta']}", icon="🔎")
+    with st.container(border=True):
+        st.markdown(ui.resumir_texto(linha["resposta_llm"], limite=600))
+        st.caption(f"Fundamentação: {ui.formatar_fontes(linha['fontes_rag'])}")
 
     # Anamnese e prescrição são digitadas, nunca sugeridas. A avaliação
     # comparativa mostrou o modelo ajustado devolvendo dose e posologia onde o
@@ -849,13 +995,13 @@ def modulo_laudos() -> None:
         if st.form_submit_button("Salvar laudo", type="primary"):
             # Salva mesmo incompleto: o médico pode escrever a anamnese, sair
             # para conferir um exame e voltar.
-            laudo.salvar_rascunho(registro_id, anamnese, prescricao)
+            laudo.salvar_rascunho(registro_id, anamnese, prescricao, paciente_id)
             st.rerun()
 
     try:
         documento = laudo.gerar(
             dict(linha),
-            pacientes.get(linha["paciente_id"] or ""),
+            paciente,
             anamnese=rascunho["anamnese"],
             prescricao=rascunho["prescricao"],
         )

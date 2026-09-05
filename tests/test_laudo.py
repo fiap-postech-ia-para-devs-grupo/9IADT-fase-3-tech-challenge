@@ -56,11 +56,14 @@ def test_laudo_cita_a_fundamentacao_pelo_titulo_do_protocolo() -> None:
     assert "sepse.md" not in documento
 
 
-def test_laudo_sem_paciente_diz_isso_explicitamente() -> None:
-    """Omitir o campo sugeriria que houve um paciente identificado."""
-    documento = _gerar(linha={**_APROVADA, "paciente_id": None}, paciente=None)
+def test_laudo_sem_paciente_nao_e_emitido() -> None:
+    """A consulta pode não ter prontuário vinculado; o laudo, não.
 
-    assert "Consulta sem paciente vinculado" in documento
+    É um documento sobre alguém — emitir sem identificar o paciente produziria
+    uma conduta assinada sem destinatário.
+    """
+    with pytest.raises(laudo.LaudoIncompleto, match="Escolha o paciente"):
+        _gerar(linha={**_APROVADA, "paciente_id": None}, paciente=None)
 
 
 @pytest.mark.parametrize("status", ["pendente", "rejeitado", "nao_necessaria"])
@@ -111,10 +114,22 @@ def test_rascunho_incompleto_pode_ser_salvo(limpar_auditoria) -> None:
 
 
 def test_rascunho_completo_libera_a_emissao(limpar_auditoria) -> None:
-    laudo.salvar_rascunho(5, _ANAMNESE, _PRESCRICAO)
+    laudo.salvar_rascunho(5, _ANAMNESE, _PRESCRICAO, paciente_id="1")
 
     assert laudo.esta_completo(5) is True
 
 
+def test_paciente_da_consulta_dispensa_escolher_de_novo(limpar_auditoria) -> None:
+    """Quando a consulta já veio com prontuário, não há o que selecionar."""
+    laudo.salvar_rascunho(5, _ANAMNESE, _PRESCRICAO)
+
+    assert laudo.esta_completo(5, paciente_id="1") is True
+    assert laudo.esta_completo(5) is False
+
+
 def test_rascunho_inexistente_volta_vazio(limpar_auditoria) -> None:
-    assert laudo.obter_rascunho(999) == {"anamnese": "", "prescricao": ""}
+    assert laudo.obter_rascunho(999) == {
+        "anamnese": "",
+        "prescricao": "",
+        "paciente_id": None,
+    }

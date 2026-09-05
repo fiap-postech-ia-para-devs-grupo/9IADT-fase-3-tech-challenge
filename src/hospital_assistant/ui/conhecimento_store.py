@@ -51,6 +51,7 @@ class Entrada(TypedDict):
     pergunta: str
     resposta: str
     paciente_id: str | None
+    medico: str | None
     timestamp: str
 
 
@@ -86,8 +87,24 @@ def listar() -> list[Entrada]:
     return list(reversed(entradas))
 
 
+def obter(audit_id: int) -> Entrada | None:
+    """A consulta correspondente a um registro de auditoria.
+
+    É por aqui que o laudo descobre quem **solicitou** a análise: a trilha de
+    auditoria guarda quem aprovou, não quem perguntou.
+    """
+    for entrada in listar():
+        if entrada["audit_id"] == audit_id:
+            return entrada
+    return None
+
+
 def registrar(
-    audit_id: int, pergunta: str, resposta: str, paciente_id: str | None = None
+    audit_id: int,
+    pergunta: str,
+    resposta: str,
+    paciente_id: str | None = None,
+    medico: str | None = None,
 ) -> None:
     """Acrescenta uma resposta à base, sem julgar se ela é boa.
 
@@ -101,6 +118,7 @@ def registrar(
             "pergunta": pergunta.strip(),
             "resposta": resposta,
             "paciente_id": paciente_id,
+            "medico": medico,
             "timestamp": datetime.now(UTC).isoformat(),
         }
     )

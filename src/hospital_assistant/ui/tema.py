@@ -47,6 +47,12 @@ CORES_STATUS: dict[str, tuple[str, str, str]] = {
     "aprovado": (APROVADO, APROVADO_FUNDO, "Aprovado"),
     "rejeitado": (ALERTA, ALERTA_FUNDO, "Rejeitado"),
     "nao_necessaria": (NEUTRO, NEUTRO_FUNDO, "Sem validação exigida"),
+    # Vocabulário do laudo. Fica no mesmo mapa para reusar o badge, mas com
+    # chaves próprias: na tela de laudos a resposta **já foi validada**, e
+    # reaproveitar "Pendente de validação" dizia ao médico que faltava algo que
+    # ele acabara de fazer.
+    "laudo_pendente": (PENDENTE, PENDENTE_FUNDO, "Pendente de conclusão"),
+    "laudo_concluido": (APROVADO, APROVADO_FUNDO, "Laudo concluído"),
 }
 
 CORES_CATEGORIA: dict[str, tuple[str, str]] = {
@@ -274,7 +280,10 @@ def css() -> str:
     text-transform: uppercase; letter-spacing: .08em; margin-top: .2rem;
   }}
 
-  div[data-testid="stDataFrame"] {{ border-radius: 6px; }}
+  /* Com paciente, solicitante e tipo de operação a auditoria passou a ter mais
+     colunas do que cabe na tela. Sem a rolagem própria, a página inteira rola
+     de lado e a barra lateral sai de vista. */
+  div[data-testid="stDataFrame"] {{ border-radius: 6px; overflow-x: auto; }}
   .stButton > button {{ border-radius: 6px; font-weight: 500; }}
 
   /* --- assistente ------------------------------------------------------- */

@@ -177,14 +177,21 @@ def tabela_auditoria(linhas: list[dict[str, Any]]) -> pd.DataFrame:
 
     A ordem das colunas é fixada aqui (e não deixada por conta da ordem das
     chaves do dicionário) porque a leitura de uma linha de auditoria tem uma
-    sequência natural: quando, quem perguntou, sobre quem, o que respondeu,
-    com base em quê, e em que situação está.
+    sequência natural: quando, que tipo de operação, quem pediu, sobre quem, o
+    que foi perguntado e respondido, com base em quê, e em que situação está.
+
+    `paciente` e `medico_solicitante` não vêm da trilha de auditoria — ela grava
+    o id do paciente e só o nome de quem aprovou. Quem os resolve é a tela, que
+    tem acesso ao cadastro; aqui eles chegam prontos, para este módulo continuar
+    sendo só formatação.
     """
     ordem = [
         "id",
         "timestamp",
+        "tipo_operacao",
+        "medico_solicitante",
+        "paciente",
         "pergunta",
-        "paciente_id",
         "resposta_llm",
         "fontes_rag",
         "flags_seguranca",
@@ -203,7 +210,7 @@ def tabela_auditoria(linhas: list[dict[str, Any]]) -> pd.DataFrame:
             formatador = _FORMATADORES.get(campo)
             if formatador is not None:
                 registro[rotulos.rotular(campo)] = formatador(valor)  # type: ignore[arg-type]
-            elif campo == "paciente_id":
+            elif campo in ("paciente", "medico_solicitante", "tipo_operacao"):
                 registro[rotulos.rotular(campo)] = valor or "—"
             else:
                 registro[rotulos.rotular(campo)] = resumir_texto(valor)

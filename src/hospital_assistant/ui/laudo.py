@@ -40,6 +40,7 @@ ARQUIVO = DATA_DIR / "laudos.json"
 class Rascunho(TypedDict):
     anamnese: str
     prescricao: str
+    paciente_id: str | None
 
 
 class RespostaNaoAprovada(RuntimeError):
@@ -64,22 +65,33 @@ def _todos() -> dict[str, Any]:
 
 
 def obter_rascunho(audit_id: int) -> Rascunho:
-    """Anamnese e prescrição já digitadas, ou vazias."""
+    """O que o médico já preencheu, ou vazio."""
     guardado = _todos().get(str(audit_id)) or {}
     return {
         "anamnese": guardado.get("anamnese", ""),
         "prescricao": guardado.get("prescricao", ""),
+        "paciente_id": guardado.get("paciente_id"),
     }
 
 
-def salvar_rascunho(audit_id: int, anamnese: str, prescricao: str) -> None:
-    """Guarda o texto do médico, mesmo incompleto.
+def salvar_rascunho(
+    audit_id: int, anamnese: str, prescricao: str, paciente_id: str | None = None
+) -> None:
+    """Guarda o que o médico preencheu, mesmo incompleto.
 
     Salvar incompleto é intencional: o médico pode escrever a anamnese, sair
     para conferir um exame e voltar. Quem decide se está pronto é `gerar`.
+
+    `paciente_id` fica no rascunho porque a consulta pode ter sido feita sem
+    prontuário vinculado — o laudo, não: é um documento sobre alguém, e esse
+    alguém precisa ser escolhido antes da emissão.
     """
     laudos = _todos()
-    laudos[str(audit_id)] = {"anamnese": anamnese, "prescricao": prescricao}
+    laudos[str(audit_id)] = {
+        "anamnese": anamnese,
+        "prescricao": prescricao,
+        "paciente_id": paciente_id,
+    }
 
     ARQUIVO.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -91,10 +103,18 @@ def salvar_rascunho(audit_id: int, anamnese: str, prescricao: str) -> None:
     os.replace(caminho_temporario, ARQUIVO)
 
 
-def esta_completo(audit_id: int) -> bool:
-    """Se o laudo já tem o que só o médico pode escrever."""
+def esta_completo(audit_id: int, paciente_id: str | None = None) -> bool:
+    """Se o laudo tem paciente e o que só o médico pode escrever.
+
+    `paciente_id` é o da consulta: quando ela já veio com prontuário vinculado,
+    não há o que escolher e o rascunho não precisa carregar essa informação.
+    """
     rascunho = obter_rascunho(audit_id)
-    return bool(rascunho["anamnese"].strip() and rascunho["prescricao"].strip())
+    return bool(
+        rascunho["anamnese"].strip()
+        and rascunho["prescricao"].strip()
+        and (paciente_id or rascunho["paciente_id"])
+    )
 
 
 def limpar() -> None:
@@ -127,12 +147,13 @@ def gerar(
         raise LaudoIncompleto("A anamnese é obrigatória e deve ser escrita pelo médico.")
     if not prescricao.strip():
         raise LaudoIncompleto("A prescrição é obrigatória e deve ser escrita pelo médico.")
+    if not paciente:
+        raise LaudoIncompleto(
+            "Escolha o paciente. A consulta pode ter sido feita sem prontuário vinculado, "
+            "mas o laudo é um documento sobre alguém."
+        )
 
-    identificacao = (
-        f"{paciente['nome']} — prontuário {paciente['prontuario']}"
-        if paciente
-        else "Consulta sem paciente vinculado"
-    )
+    identificacao = f"{paciente['nome']} — prontuário {paciente['prontuario']}"
     emitido_em = ui.formatar_data_hora(str(linha.get("timestamp_aprovacao") or ""))
 
     return "\n".join(
