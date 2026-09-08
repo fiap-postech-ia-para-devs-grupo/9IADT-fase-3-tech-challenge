@@ -15,11 +15,94 @@
 
 ## 1. Contexto e Motivação
 
-_(pendente — Vinicius Blasque, #18)_
+O Tech Challenge da Fase 3 pede um assistente que combine uma LLM ajustada por
+fine-tuning com um pipeline LangChain/LangGraph orientado a decisão. O domínio
+escolhido — um hospital fictício — impõe uma restrição que molda toda a
+arquitetura: **nenhuma sugestão do assistente pode chegar ao usuário final sem
+passar por um médico** (ESTRATEGIA.md §1, "Guardrail de prescrição"). Isso
+descarta de saída qualquer desenho em que a LLM responde direto; o sistema
+precisa registrar como chegou a cada sugestão, permitir que um humano
+aprove/edite/rejeite antes de qualquer coisa virar "resposta", e manter uma
+trilha auditável de tudo isso.
+
+Essa restrição é o motivo de o assistente combinar três fontes de conhecimento
+com responsabilidades deliberadamente separadas, em vez de deixar uma única
+LLM decidir tudo:
+
+| Camada | Papel |
+| --- | --- |
+| **Fine-tuning** (Llama-3.2-3B-Instruct + LoRA) | Estilo/vocabulário clínico — não memoriza fatos de paciente. |
+| **RAG** (Chroma) | Conhecimento clínico geral/protocolar, citável por fonte + score — resposta rastreável, não "confie na LLM". |
+| **`patient_tools`** (SQLite mockado, funções parametrizadas, nunca SQL livre) | Dado de paciente específico — evita query alucinada sobre prontuário, o tipo de erro silencioso mais caro nesse domínio. |
 
 ## 2. Arquitetura da Solução (diagrama)
 
-_(pendente — Vinicius Blasque, #18)_
+Diagrama geral do sistema, a partir do código em `main` (não do plano —
+ESTRATEGIA.md §2 tinha a versão planejada, em ASCII, antes da implementação).
+As seções 4.2/4.3 aprofundam guardrails e auditoria; o resumo abaixo já basta
+pra entender o desenho.
+
+#### Guardrails (`ClinicalGuardrails`, `safety/guardrails.py`)
+
+Atua em dois pontos do grafo:
+
+- **Entrada** (`validar_input`): casa a pergunta contra termos de emergência
+  (dor torácica, hipotensão grave, convulsão, febre muito alta etc.) e de
+  violência doméstica, marcando o caso para o alerta do nó seguinte.
+- **Saída** (`validar_output`): se a resposta gerada menciona
+  medicamento/dosagem ou prescrição direta, marca `requer_validacao_humana` e
+  anexa um aviso de segurança — nenhuma sugestão com prescrição sai sem
+  passar pela fila humana. Linguagem de diagnóstico definitivo ("você tem X")
+  é reescrita para "seus sintomas podem ser compatíveis com X", e toda
+  resposta recebe o disclaimer de caráter informativo caso ainda não tenha um.
+
+```mermaid
+flowchart TD
+    subgraph FT["Fine-tuning offline — notebooks/finetuning_colab.ipynb (Colab T4)"]
+        FT1["Preparação de dados<br/>anonimização + curadoria"] --> FT2["QLoRA 4-bit<br/>Llama-3.2-3B-Instruct"]
+        FT2 --> FT3["Avaliação<br/>loss/perplexity + base x tuned"]
+        FT3 --> FT4["Publicação<br/>adapter LoRA no HF Hub"]
+    end
+
+    FT4 -->|"HF_ADAPTER_REPO"| N4
+
+    subgraph GRAPH["LangGraph — graph/flow.py (StateGraph linear, 7 nós)"]
+        direction TB
+        N1["receber_paciente"] --> N2["verificar_exames_pendentes"]
+        N2 --> N3["consultar_protocolo"]
+        N3 --> N4["gerar_sugestao_llm"]
+        N4 --> N5["validar_seguranca"]
+        N5 --> N6["emitir_alerta_se_necessario"]
+        N6 --> N7["log_auditoria"]
+    end
+
+    N2 <-.-> DB[("SQLite mock<br/>db/patient_tools.py")]
+    N3 <-.-> RAGDB[("Chroma<br/>rag/retriever.py")]
+    N4 -.-> LLMBOX{{"get_llm(): FineTunedLLM (adapter real)<br/>ou MockLLM (sem GPU/adapter — dev, CI, pytest)"}}
+    N5 <-.-> GR["safety/guardrails.py<br/>ClinicalGuardrails"]
+    N7 -.-> AUD[("clinical_audit.jsonl<br/>safety/audit_log.py")]
+
+    N7 --> T1
+
+    subgraph UI["Streamlit — app.py (3 telas)"]
+        T1["Tela 1 — Consulta ao Assistente<br/>dispara o grafo"] --> T2["Tela 2 — Fila de Validação Humana<br/>aprovar / rejeitar / editar + fontes RAG"]
+        T2 --> T3["Tela 3 — Auditoria e Histórico<br/>lê clinical_audit.jsonl"]
+    end
+```
+
+#### Divergências do plano original
+
+Duas, verificadas lendo o código real, ambas em relação a ESTRATEGIA.md §2:
+
+- **Auditoria**: o log é **JSONL** (`clinical_audit.jsonl`), não a "tabela
+  SQLite dedicada" da decisão original — `AuditRow`/`real_audit_rows` (o
+  contrato que a Tela 2/3 consome) leem esse arquivo.
+- **Decisões de validação** (Aprovar/Rejeitar/Editar): vivem em
+  `st.session_state`, não persistidas — visíveis entre Tela 2 e Tela 3 na
+  mesma sessão, mas não sobrevivem a um restart.
+
+Nenhuma quebra o requisito mínimo (fila de aprovação humana obrigatória, log
+consultável na Tela 3); são o estado real da implementação em `main`.
 
 ## 3. Fine-tuning da LLM
 
