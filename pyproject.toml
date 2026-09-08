@@ -60,9 +60,9 @@ known-first-party = ["hospital_assistant"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# "." além de "src": tests/test_laudo.py faz `import app` (o app.py da raiz),
-# que sem isso só funciona por acidente de como o IDE/terminal de quem roda
-# monta o sys.path — falha em checkout limpo (#19).
+# "." além de "src": app.py fica na raiz (convenção do Streamlit) e algum
+# teste importa direto dele. Sem isso, só funciona por acidente de como o
+# IDE/terminal de quem roda monta o sys.path — falha em checkout limpo.
 pythonpath = ["src", "."]
 
 [dependency-groups]
