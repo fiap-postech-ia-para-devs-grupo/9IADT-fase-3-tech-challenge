@@ -162,4 +162,4 @@ echo "HF_ADAPTER_REPO=seu-usuario/hospital-assistant-llama32-3b-lora" >> .env
 
 ## Vídeo
 
-_(link a adicionar por Vinicius Blasque ao final da Fase 3)_
+[Demonstração do assistente virtual médico](https://youtu.be/ObDccbHUvrY)
